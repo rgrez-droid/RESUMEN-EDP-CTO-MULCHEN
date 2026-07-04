@@ -300,6 +300,13 @@ def nombre_periodo(fecha):
     return f"{MESES[fecha.month]} {fecha.year}"
 
 
+def reiniciar_app():
+    try:
+        st.rerun()
+    except Exception:
+        st.experimental_rerun()
+
+
 # =========================================================
 # ESTILO GENERAL CLARO
 # =========================================================
@@ -392,6 +399,36 @@ body,
     font-size: 14px;
     line-height: 1.65;
     text-align: center;
+}
+
+/* Inputs login */
+div[data-baseweb="input"] > div {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border: 1px solid #94a3b8 !important;
+    border-radius: 10px !important;
+}
+
+div[data-baseweb="input"] input {
+    color: #0f172a !important;
+    font-weight: 600 !important;
+}
+
+/* Botón ingresar */
+div[data-testid="stFormSubmitButton"] button {
+    background: linear-gradient(135deg, #16a34a, #15803d) !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 12px !important;
+    height: 48px !important;
+    font-weight: 900 !important;
+    width: 100% !important;
+    box-shadow: 0 8px 18px rgba(22, 163, 74, 0.28) !important;
+}
+
+div[data-testid="stFormSubmitButton"] button:hover {
+    background: linear-gradient(135deg, #15803d, #166534) !important;
+    color: #ffffff !important;
 }
 
 /* Encabezado profesional */
@@ -588,21 +625,6 @@ div[data-baseweb="select"] input {
     color: #111827 !important;
 }
 
-div.stButton > button:first-child {
-    background: #ef4444 !important;
-    color: white !important;
-    border: none !important;
-    border-radius: 10px !important;
-    height: 48px !important;
-    font-weight: 800 !important;
-    width: 100% !important;
-}
-
-div.stButton > button:first-child:hover {
-    background: #dc2626 !important;
-    color: white !important;
-}
-
 h1,
 h2,
 h3,
@@ -656,21 +678,46 @@ def agregar_sello_agua_panel():
 
 # =========================================================
 # LOGIN CON STREAMLIT SECRETS
+# Formato esperado:
+#
+# [usuarios]
+# Ricardo = "clave"
+# Alexis = "clave"
+# Moises = "clave"
+# Victor = "clave"
 # =========================================================
 
-def obtener_credenciales():
+def obtener_usuarios_autorizados():
     try:
-        usuario_app = st.secrets["auth"]["usuario"]
-        clave_app = st.secrets["auth"]["clave"]
+        usuarios = dict(st.secrets["usuarios"])
 
-        return usuario_app, clave_app
+        if not usuarios:
+            st.error(
+                "La sección [usuarios] existe, pero no tiene usuarios configurados."
+            )
+            st.stop()
+
+        return usuarios
 
     except Exception:
         st.error(
-            "No se encontraron las credenciales en Streamlit Secrets. "
-            "Configura [auth] usuario y clave antes de ejecutar el panel."
+            "No se encontraron usuarios en Streamlit Secrets. "
+            "Configura las credenciales con este formato: "
+            "[usuarios] Ricardo = \"clave\""
         )
         st.stop()
+
+
+def credenciales_validas(usuario_ingresado, clave_ingresada):
+    usuarios = obtener_usuarios_autorizados()
+
+    usuario_ingresado_norm = normalizar(usuario_ingresado)
+
+    for usuario_guardado, clave_guardada in usuarios.items():
+        if normalizar(usuario_guardado) == usuario_ingresado_norm:
+            return str(clave_ingresada) == str(clave_guardada), usuario_guardado
+
+    return False, None
 
 
 def mostrar_login():
@@ -701,14 +748,17 @@ def mostrar_login():
         with st.form("formulario_login"):
             usuario = st.text_input("Usuario")
             clave = st.text_input("Contraseña", type="password")
-            ingresar = st.form_submit_button("Ingresar")
+            ingresar = st.form_submit_button("Ingresar", use_container_width=True)
 
         if ingresar:
-            usuario_app, clave_app = obtener_credenciales()
+            usuario = usuario.strip()
 
-            if usuario == usuario_app and clave == clave_app:
+            acceso, usuario_validado = credenciales_validas(usuario, clave)
+
+            if acceso:
                 st.session_state["autenticado"] = True
-                st.rerun()
+                st.session_state["usuario"] = usuario_validado
+                reiniciar_app()
             else:
                 st.error("Usuario o contraseña incorrectos.")
 
@@ -727,6 +777,9 @@ def mostrar_login():
 def validar_acceso():
     if "autenticado" not in st.session_state:
         st.session_state["autenticado"] = False
+
+    if "usuario" not in st.session_state:
+        st.session_state["usuario"] = ""
 
     if not st.session_state["autenticado"]:
         mostrar_login()
@@ -1123,6 +1176,8 @@ def mostrar_panel():
     )
 
     with col_titulo:
+        usuario_actual = st.session_state.get("usuario", "")
+
         st.markdown(
             (
                 '<div class="encabezado-panel">'
@@ -1140,6 +1195,7 @@ def mostrar_panel():
                 '<span class="badge-header">Transporte de Residuos</span>'
                 '<span class="badge-header">Toneladas Gestionadas</span>'
                 '<span class="badge-header badge-amarillo">Planta Mulchén</span>'
+                f'<span class="badge-header">Usuario: {usuario_actual}</span>'
                 "</div>"
 
                 '<div class="metadata">'
@@ -1774,7 +1830,7 @@ except FileNotFoundError:
     st.error("No se encontró la planilla Excel.")
 
     st.write(
-        "Verifica que el archivo esté en la misma carpeta que app.py "
+        "Verifica que el archivo esté en la misma carpeta que streamlit_app.py "
         "y que tenga uno de estos nombres:"
     )
 
