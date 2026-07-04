@@ -23,7 +23,7 @@ st.set_page_config(
 NOMBRE_BASE_EXCEL = "RESUMEN ESTADOS DE PAGO"
 
 LOGO_SUPERIOR_BASE = "logo1"
-SELLO_AGUA_BASE = "logoredondo"
+SELLO_AGUA_BASE = "camion"
 SELFIE_BASE = "selfie"
 
 AUTOR = "Ricardo Grez"
@@ -105,6 +105,19 @@ def archivo_a_base64(ruta):
         ).decode("utf-8")
 
 
+def obtener_tipo_mime(ruta):
+    extension = os.path.splitext(str(ruta))[1].lower().replace(".", "")
+
+    tipos = {
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "webp": "image/webp",
+    }
+
+    return tipos.get(extension, "image/png")
+
+
 def buscar_imagen_por_nombre(nombre_base):
     extensiones = [
         "png",
@@ -113,21 +126,29 @@ def buscar_imagen_por_nombre(nombre_base):
         "webp",
     ]
 
-    for extension in extensiones:
-        ruta = f"{nombre_base}.{extension}"
+    nombre_base_normalizado = normalizar(nombre_base)
 
-        if os.path.exists(ruta):
-            return ruta
+    candidatos = []
 
-    archivos = []
+    for carpeta in ["."]:
+        for extension in extensiones:
+            candidatos.extend(glob.glob(os.path.join(carpeta, f"{nombre_base}.{extension}")))
+            candidatos.extend(glob.glob(os.path.join(carpeta, f"**/*{nombre_base}*.{extension}"), recursive=True))
 
-    for extension in extensiones:
-        archivos.extend(
-            glob.glob(f"*{nombre_base}*.{extension}")
-        )
+    for archivo in glob.glob("**/*", recursive=True):
+        if os.path.isfile(archivo):
+            extension = os.path.splitext(archivo)[1].lower().replace(".", "")
 
-    if archivos:
-        return sorted(archivos)[0]
+            if extension in extensiones:
+                nombre_archivo = normalizar(os.path.splitext(os.path.basename(archivo))[0])
+
+                if nombre_base_normalizado in nombre_archivo:
+                    candidatos.append(archivo)
+
+    candidatos_unicos = sorted(set(candidatos))
+
+    if candidatos_unicos:
+        return candidatos_unicos[0]
 
     return None
 
@@ -509,35 +530,58 @@ div[data-testid="stFormSubmitButton"] button:hover {
     padding-left: 11px;
 }
 
-/* Tarjetas */
+/* Tarjetas KPI - estilo ejecutivo */
 .tarjeta {
     background:
         linear-gradient(
-            135deg,
-            rgba(255, 255, 255, 0.98),
-            rgba(241, 245, 249, 0.98)
+            180deg,
+            rgba(255, 255, 255, 0.99),
+            rgba(248, 250, 252, 0.98)
         );
 
-    border: 1px solid rgba(148, 163, 184, 0.65);
+    border: 1px solid rgba(148, 163, 184, 0.58);
+    border-top: 4px solid #334155;
     border-radius: 15px;
-    padding: 17px 11px;
-    min-height: 112px;
+    padding: 18px 12px 16px 12px;
+    min-height: 116px;
     text-align: center;
 
     box-shadow:
-        0 6px 18px
-        rgba(15, 23, 42, 0.10);
+        0 8px 18px
+        rgba(15, 23, 42, 0.08);
+}
+
+.tarjeta-verde {
+    border-top-color: #047857;
+}
+
+.tarjeta-azul {
+    border-top-color: #1d4ed8;
+}
+
+.tarjeta-naranjo {
+    border-top-color: #b45309;
+}
+
+.tarjeta-amarillo {
+    border-top-color: #92400e;
+}
+
+.tarjeta-morado {
+    border-top-color: #5b21b6;
 }
 
 .tarjeta-titulo {
-    font-size: 13px;
-    color: #334155;
-    font-weight: 800;
+    font-size: 12px;
+    color: #475569;
+    font-weight: 850;
+    letter-spacing: 0.25px;
+    text-transform: uppercase;
     min-height: 20px;
 }
 
 .tarjeta-valor {
-    font-size: 24px;
+    font-size: 23px;
     font-weight: 950;
     margin-top: 8px;
     direction: ltr !important;
@@ -563,23 +607,23 @@ div[data-testid="stFormSubmitButton"] button:hover {
 }
 
 .verde {
-    color: #16a34a;
+    color: #047857;
 }
 
 .azul {
-    color: #0284c7;
+    color: #1d4ed8;
 }
 
 .naranjo {
-    color: #ea580c;
+    color: #b45309;
 }
 
 .amarillo {
-    color: #ca8a04;
+    color: #92400e;
 }
 
 .morado {
-    color: #7c3aed;
+    color: #5b21b6;
 }
 
 .resumen {
@@ -647,6 +691,7 @@ def agregar_sello_agua_panel():
         return
 
     sello = archivo_a_base64(ruta_sello)
+    tipo_mime = obtener_tipo_mime(ruta_sello)
 
     st.markdown(
         (
@@ -656,14 +701,14 @@ def agregar_sello_agua_panel():
             "position: fixed;"
             "top: 56%;"
             "left: 50%;"
-            "width: 620px;"
-            "height: 620px;"
+            "width: 720px;"
+            "height: 520px;"
             "transform: translate(-50%, -50%);"
-            f"background-image: url('data:image/png;base64,{sello}');"
+            f"background-image: url('data:{tipo_mime};base64,{sello}');"
             "background-repeat: no-repeat;"
             "background-position: center;"
             "background-size: contain;"
-            "opacity: 0.035;"
+            "opacity: 0.045;"
             "z-index: 1;"
             "pointer-events: none;"
             "}"
@@ -1037,7 +1082,7 @@ def seccion(titulo):
 def tarjeta(titulo, valor, subtitulo, color):
     st.markdown(
         (
-            '<div class="tarjeta">'
+            f'<div class="tarjeta tarjeta-{color}">'
             f'<div class="tarjeta-titulo">{titulo}</div>'
             f'<div class="tarjeta-valor {color}">{valor}</div>'
             f'<div class="tarjeta-subtitulo">{subtitulo}</div>'
