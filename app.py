@@ -1436,7 +1436,7 @@ def mostrar_panel():
             "azul",
         ),
         (
-            "Promedio mensual EP<br>(Valor neto)",
+            "Valor promedio mensual<br>(Neto sin IVA)",
             pesos_html(promedio_neto_mensual),
             f"{cantidad_meses} meses considerados",
             "morado",
