@@ -859,32 +859,93 @@ def cargar_datos(ruta_excel):
 
     renombres = {}
 
+    # Se aceptan distintos nombres de encabezado para evitar errores
+    # cuando la planilla usa títulos más descriptivos.
     equivalencias = {
-        "Mes": "Mes",
-        "Periodo": "Periodo",
-        "Servicio_fijo": "Servicio_fijo",
-        "Transporte_residuos": "Transporte_residuos",
-        "Adicionales": "Adicionales",
-        "Total_neto": "Total_neto",
-        "IVA_19": "IVA_19",
-        "Total_bruto": "Total_bruto",
-        "Ton_RAD": "Ton_RAD",
-        "Ton_Corteza_G3": "Ton_Corteza_G3",
-        "Ton_Escoria": "Ton_Escoria",
-        "Ton_Cenizas": "Ton_Cenizas",
-        "Ton_Total": "Ton_Total",
+        "Mes": [
+            "Mes",
+        ],
+        "Periodo": [
+            "Periodo",
+            "Período",
+        ],
+        "Servicio_fijo": [
+            "Servicio_fijo",
+            "Servicio fijo",
+        ],
+        "Transporte_residuos": [
+            "Transporte_residuos",
+            "Transporte residuos",
+            "Transporte de residuos",
+        ],
+        "Adicionales": [
+            "Adicionales",
+        ],
+        "Total_neto": [
+            "Total_neto",
+            "Total neto",
+            "Total neto acumulado",
+        ],
+        "IVA_19": [
+            "IVA_19",
+            "IVA 19",
+            "IVA 19%",
+        ],
+        "Total_bruto": [
+            "Total_bruto",
+            "Total bruto",
+            "Total bruto acumulado",
+            "Valor total acumulado",
+            "Total acumulado",
+            "Monto final estados de pago",
+        ],
+        "Ton_RAD": [
+            "Ton_RAD",
+            "Ton RAD",
+        ],
+        "Ton_Corteza_G3": [
+            "Ton_Corteza_G3",
+            "Ton Corteza G3",
+        ],
+        "Ton_Escoria": [
+            "Ton_Escoria",
+            "Ton Escoria",
+        ],
+        "Ton_Cenizas": [
+            "Ton_Cenizas",
+            "Ton Cenizas",
+        ],
+        "Ton_Total": [
+            "Ton_Total",
+            "Ton Total",
+            "Toneladas totales",
+        ],
     }
 
-    for columna_objetivo in equivalencias:
-        columna_encontrada = buscar_columna(
-            datos.columns,
-            columna_objetivo,
-        )
+    for columna_objetivo, nombres_posibles in equivalencias.items():
+        for nombre_posible in nombres_posibles:
+            columna_encontrada = buscar_columna(
+                datos.columns,
+                nombre_posible,
+            )
 
-        if columna_encontrada:
-            renombres[columna_encontrada] = columna_objetivo
+            if columna_encontrada:
+                renombres[columna_encontrada] = columna_objetivo
+                break
 
     datos = datos.rename(columns=renombres)
+
+    # Si la planilla no contiene una columna de total bruto,
+    # se calcula automáticamente como total neto + IVA.
+    if (
+        "Total_bruto" not in datos.columns
+        and "Total_neto" in datos.columns
+        and "IVA_19" in datos.columns
+    ):
+        datos["Total_bruto"] = (
+            datos["Total_neto"].apply(limpiar_numero)
+            + datos["IVA_19"].apply(limpiar_numero)
+        )
 
     columnas_requeridas = [
         "Mes",
@@ -1369,7 +1430,7 @@ def mostrar_panel():
             "amarillo",
         ),
         (
-            "Total bruto acumulado",
+            "Valor total acumulado",
             pesos_html(total_bruto),
             "Monto final estados de pago",
             "azul",
