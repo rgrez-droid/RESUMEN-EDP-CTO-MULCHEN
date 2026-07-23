@@ -834,7 +834,9 @@ def validar_acceso():
 # =========================================================
 
 @st.cache_data
-def cargar_datos(ruta_excel):
+def cargar_datos(ruta_excel, firma_archivo=None):
+    # firma_archivo obliga a recargar cuando cambia el Excel, aunque conserve el mismo nombre.
+    _ = firma_archivo
     datos = pd.read_excel(ruta_excel)
 
     datos = (
@@ -1113,7 +1115,7 @@ def cargar_datos(ruta_excel):
 
     tiene_detalle_costos_residuos = bool(
         datos["Disposicion_residuos"].abs().sum() > 0
-        and datos["Traslados_residuos"].abs().sum() > 0
+        or datos["Traslados_residuos"].abs().sum() > 0
     )
 
     datos["Tiene_detalle_costos_residuos"] = tiene_detalle_costos_residuos
@@ -1391,7 +1393,12 @@ def mostrar_panel():
             "No se encontró el archivo Excel RESUMEN ESTADOS DE PAGO."
         )
 
-    datos = cargar_datos(ruta_excel)
+    firma_excel = (
+        os.path.getmtime(ruta_excel),
+        os.path.getsize(ruta_excel),
+    )
+
+    datos = cargar_datos(ruta_excel, firma_excel)
 
     fecha_minima = datos["Fecha"].min()
     fecha_maxima = datos["Fecha"].max()
@@ -1659,7 +1666,7 @@ def mostrar_panel():
         (
             "RAD",
             toneladas(total_rad),
-            "Residuo aserrín / derivados",
+            "Residuos domiciliarios",
             "morado",
         ),
         (
@@ -1725,8 +1732,12 @@ def mostrar_panel():
 
     # Gráfico mensual de disposición final y traslados.
     tiene_detalle_costos_residuos = bool(
-        "Tiene_detalle_costos_residuos" in datos_filtrados.columns
-        and datos_filtrados["Tiene_detalle_costos_residuos"].any()
+        "Disposicion_residuos" in datos_filtrados.columns
+        and "Traslados_residuos" in datos_filtrados.columns
+        and (
+            datos_filtrados["Disposicion_residuos"].abs().sum() > 0
+            or datos_filtrados["Traslados_residuos"].abs().sum() > 0
+        )
     )
 
     if tiene_detalle_costos_residuos:
@@ -1837,9 +1848,8 @@ def mostrar_panel():
 
     else:
         st.info(
-            "Para mostrar el gráfico de disposición y traslados, la planilla "
-            "debe incluir las columnas 'Disposicion' y 'Traslado', o "
-            "bien los costos separados de RAD, Corteza, Escoria y Cenizas."
+            "No se encontraron valores en las columnas 'Disposicion' y 'Traslado' "
+            "para el período seleccionado. Revisa que ambas columnas contengan montos numéricos."
         )
 
     # -----------------------------------------------------
