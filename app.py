@@ -71,6 +71,7 @@ COLUMNAS_DETALLE_ADICIONALES = [
     "Reembolso",
     "Insumos_arriendo_herramientas",
     "Horas_extras",
+    "Bonificaciones",
     "Cot_adicionales",
 ]
 
@@ -916,6 +917,7 @@ def cargar_datos(ruta_excel, firma_archivo=None):
         "Reembolso",
         "Insumos_arriendo_herramientas",
         "Horas_extras",
+        "Bonificaciones",
         "Cot_adicionales",
         "Total_neto",
         "IVA_19",
@@ -1091,6 +1093,12 @@ def cargar_datos(ruta_excel, firma_archivo=None):
             "Horas extra",
             "HH Extras",
         ],
+        "Bonificaciones": [
+            "Bonificaciones",
+            "Bonificación",
+            "Bonificacion",
+            "Bonos",
+        ],
         "Cot_adicionales": [
             "Cot_adicionales",
             "Cot Adicionales",
@@ -1127,6 +1135,11 @@ def cargar_datos(ruta_excel, firma_archivo=None):
         "Ton_Corteza_G3": [
             "Ton_Corteza_G3",
             "Ton Corteza G3",
+            "Ton_Corteza",
+            "Ton Corteza",
+            "Ton_Corteza_G",
+            "Ton Corteza G",
+            "Corteza G3",
         ],
         "Ton_Escoria": [
             "Ton_Escoria",
