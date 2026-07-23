@@ -8,6 +8,7 @@ import unicodedata
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 # =========================================================
@@ -22,6 +23,12 @@ st.set_page_config(
 )
 
 NOMBRE_BASE_EXCEL = "RESUMEN ESTADOS DE PAGO"
+
+CARPETA_DRIVE_ESTADOS_PAGO_ID = "1tgoJgN3351zTNdVJOyK3F9CYh2LueInf"
+CARPETA_DRIVE_ESTADOS_PAGO_URL = (
+    "https://drive.google.com/drive/folders/"
+    + CARPETA_DRIVE_ESTADOS_PAGO_ID
+)
 
 LOGO_SUPERIOR_BASE = "logo1"
 SELLO_AGUA_BASE = "camion"
@@ -1815,6 +1822,39 @@ def filtrar_datos(datos, filtro_anios, filtro_meses):
     return salida.copy()
 
 
+def mostrar_estados_pago_drive():
+    """Muestra la carpeta pública de Estados de Pago dentro del panel."""
+
+    seccion("📄 Estados de Pago Mensuales")
+
+    st.markdown(
+        (
+            '<div class="resumen">'
+            "Selecciona el archivo correspondiente al período que deseas revisar. "
+            "Los documentos se obtienen directamente desde la carpeta pública "
+            "de Google Drive."
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+    st.link_button(
+        "🔗 Abrir carpeta completa en Google Drive",
+        CARPETA_DRIVE_ESTADOS_PAGO_URL,
+        use_container_width=True,
+    )
+
+    url_embebida = (
+        "https://drive.google.com/embeddedfolderview"
+        f"?id={CARPETA_DRIVE_ESTADOS_PAGO_ID}#list"
+    )
+
+    components.iframe(
+        url_embebida,
+        height=760,
+        scrolling=True,
+    )
+
 # =========================================================
 # PANEL PRINCIPAL
 # =========================================================
@@ -2129,6 +2169,12 @@ def mostrar_panel():
         ),
         unsafe_allow_html=True,
     )
+
+    # -----------------------------------------------------
+    # ESTADOS DE PAGO EN GOOGLE DRIVE
+    # -----------------------------------------------------
+
+    mostrar_estados_pago_drive()
 
     # -----------------------------------------------------
     # INDICADORES DE ADICIONALES
