@@ -28,9 +28,9 @@ SELLO_AGUA_BASE = "camion"
 SELFIE_BASE = "selfie"
 
 AUTOR = "Ricardo Grez"
-CARGO = "Administrador de Contrato"
+CARGO = "Contract Manager"
 EMPRESA = "SAIVAM"
-VERSION = "1.2 - Corrección carga Excel y KPI adicionales"
+VERSION = "1.2"
 
 CONTRATO = "CW2307646"
 NOMBRE_CONTRATO = "Aseo Industrial y Gestión de Residuos"
