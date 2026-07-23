@@ -1127,6 +1127,12 @@ def cargar_datos(ruta_excel, firma_archivo=None):
         "Ton_Corteza_G3": [
             "Ton_Corteza_G3",
             "Ton Corteza G3",
+            "Ton_Corteza",
+            "Ton Corteza",
+            "Ton_Cortez",
+            "Ton Cortez",
+            "Corteza G3",
+            "Corteza",
         ],
         "Ton_Escoria": [
             "Ton_Escoria",
@@ -1190,6 +1196,76 @@ def cargar_datos(ruta_excel, firma_archivo=None):
                     columna_traslado: "Traslados_residuos",
                 }
             )
+
+    # Respaldo flexible para encabezados de tonelaje abreviados por Excel.
+    equivalencias_toneladas_flexibles = {
+        "Ton_RAD": [
+            "ton rad",
+            "rad ton",
+        ],
+        "Ton_Corteza_G3": [
+            "ton corteza g3",
+            "ton corteza",
+            "corteza g3",
+            "corteza",
+        ],
+        "Ton_Escoria": [
+            "ton escoria",
+            "escoria",
+        ],
+        "Ton_Cenizas": [
+            "ton cenizas",
+            "ton ceniza",
+            "cenizas",
+            "ceniza",
+        ],
+        "Ton_Total": [
+            "ton total",
+            "toneladas totales",
+            "total toneladas",
+        ],
+    }
+
+    for columna_objetivo, fragmentos in equivalencias_toneladas_flexibles.items():
+        if columna_objetivo in datos.columns:
+            continue
+
+        columna_encontrada = buscar_columna_por_fragmento(
+            datos.columns,
+            fragmentos,
+        )
+
+        if columna_encontrada:
+            datos = datos.rename(
+                columns={
+                    columna_encontrada: columna_objetivo,
+                }
+            )
+
+    # Último respaldo por posición según la estructura oficial actual:
+    # O=Ton_RAD, P=Ton_Corteza, Q=Ton_Escoria, R=Ton_Cenizas, S=Ton_Total.
+    columnas_actuales = list(datos.columns)
+    posiciones_toneladas = {
+        "Ton_RAD": 14,
+        "Ton_Corteza_G3": 15,
+        "Ton_Escoria": 16,
+        "Ton_Cenizas": 17,
+        "Ton_Total": 18,
+    }
+
+    for columna_objetivo, indice in posiciones_toneladas.items():
+        if columna_objetivo in datos.columns or indice >= len(columnas_actuales):
+            continue
+
+        columna_origen = columnas_actuales[indice]
+
+        if columna_origen not in posiciones_toneladas:
+            datos = datos.rename(
+                columns={
+                    columna_origen: columna_objetivo,
+                }
+            )
+            columnas_actuales = list(datos.columns)
 
     # Las cuatro columnas de desglose son opcionales.
     # Se crean en cero cuando aún no tienen información.
@@ -1268,6 +1344,13 @@ def cargar_datos(ruta_excel, firma_archivo=None):
             + datos["IVA_19"]
         )
 
+    # Las columnas monetarias y de período son obligatorias.
+    # Las columnas de tonelaje se completan en cero como último respaldo,
+    # evitando que toda la aplicación se detenga por una abreviación nueva.
+    for columna in COLUMNAS_TONELADAS:
+        if columna not in datos.columns:
+            datos[columna] = 0.0
+
     columnas_requeridas = [
         "Mes",
         "Periodo",
@@ -1277,11 +1360,6 @@ def cargar_datos(ruta_excel, firma_archivo=None):
         "Total_neto",
         "IVA_19",
         "Total_bruto",
-        "Ton_RAD",
-        "Ton_Corteza_G3",
-        "Ton_Escoria",
-        "Ton_Cenizas",
-        "Ton_Total",
     ]
 
     faltantes = [
