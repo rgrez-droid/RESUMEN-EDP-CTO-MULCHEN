@@ -2102,7 +2102,7 @@ def mostrar_panel():
     # INDICADORES DE ADICIONALES
     # -----------------------------------------------------
 
-    seccion("➕ Indicadores de adicionales")
+    seccion("➕ Desglose de Adicionales")
 
     tarjetas_adicionales = [
         (
