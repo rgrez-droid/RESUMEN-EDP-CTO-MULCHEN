@@ -1512,6 +1512,12 @@ def mostrar_panel():
         else 0
     )
 
+    promedio_servicio_fijo_mensual = (
+        total_servicio_fijo / cantidad_meses
+        if cantidad_meses
+        else 0
+    )
+
     promedio_transporte_mensual = (
         total_transporte / cantidad_meses
         if cantidad_meses
@@ -1592,8 +1598,8 @@ def mostrar_panel():
             "amarillo",
         ),
         (
-            "Valor promedio mensual<br>(Neto)",
-            pesos_html(promedio_neto_mensual),
+            "Promedio servicio fijo mensual",
+            pesos_html(promedio_servicio_fijo_mensual),
             f"{cantidad_meses} meses considerados",
             "azul",
         ),
@@ -1689,13 +1695,13 @@ def mostrar_panel():
 
     seccion("💰 Indicadores de costo por tonelada")
 
-    col_costo1, col_costo2, col_costo3, col_costo4 = st.columns(4)
+    col_costo1, col_costo2, col_costo3 = st.columns(3)
 
     with col_costo1:
         tarjeta(
-            "Costo transporte por tonelada",
-            pesos_html(costo_transporte_por_ton),
-            "Transporte residuos / Ton_Total",
+            "Transporte de residuos<br>(Neto)",
+            pesos_html(total_transporte),
+            "Valor neto acumulado",
             "naranjo",
         )
 
@@ -1713,14 +1719,6 @@ def mostrar_panel():
             toneladas(promedio_ton_mensual),
             f"{cantidad_meses} meses considerados",
             "azul",
-        )
-
-    with col_costo4:
-        tarjeta(
-            "Promedio mensual neto",
-            pesos_html(promedio_neto_mensual),
-            f"{cantidad_meses} meses considerados",
-            "morado",
         )
 
     # Gráfico mensual de disposición final y traslados.
