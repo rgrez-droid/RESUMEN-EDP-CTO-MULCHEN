@@ -1931,6 +1931,8 @@ def mostrar_panel():
 
     total_servicio_fijo = float(datos_filtrados["Servicio_fijo"].sum())
     total_transporte = float(datos_filtrados["Transporte_residuos"].sum())
+    total_disposicion = float(datos_filtrados["Disposicion_residuos"].sum())
+    total_traslados = float(datos_filtrados["Traslados_residuos"].sum())
     total_adicionales = float(datos_filtrados["Adicionales"].sum())
     total_neto = float(datos_filtrados["Total_neto"].sum())
     total_iva = float(datos_filtrados["IVA_19"].sum())
@@ -2085,9 +2087,10 @@ def mostrar_panel():
             f"el transporte de residuos alcanza <b>{pesos_html(total_transporte)}</b> "
             f"y los adicionales acumulan <b>{pesos_html(total_adicionales)}</b>.<br><br>"
 
-            f"Durante el período seleccionado se gestionaron "
-            f"<b>{toneladas(total_toneladas)}</b>, con un costo promedio de transporte "
-            f"de <b>{pesos_html(costo_transporte_por_ton)}</b> por tonelada.<br><br>"
+            f"Durante el período seleccionado, el valor total de transporte "
+            f"de residuos asciende a <b>{pesos_html(total_transporte)}</b>, "
+            f"compuesto por <b>{pesos_html(total_disposicion)}</b> en disposición "
+            f"y <b>{pesos_html(total_traslados)}</b> en traslados.<br><br>"
 
             "<b>Hito relevante:</b> En <b>octubre 2023</b> se registra "
             "un <b>retroactivo por modificación de tarifas de traslado de residuos</b>, "
