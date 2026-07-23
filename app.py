@@ -878,6 +878,64 @@ def cargar_datos(ruta_excel):
             "Transporte residuos",
             "Transporte de residuos",
         ],
+        # Columnas opcionales para separar el costo mensual de
+        # disposición final y traslados de residuos.
+        "Disposicion_residuos": [
+            "Disposicion_residuos",
+            "Disposición_residuos",
+            "Disposición residuos",
+            "Disposicion residuos",
+            "Disposición final",
+            "Disposicion final",
+            "Total disposición",
+            "Total Disposición",
+            "Total disposicion",
+            "Total disposición final",
+            "Disp. Final",
+        ],
+        "Traslados_residuos": [
+            "Traslados_residuos",
+            "Traslados residuos",
+            "Traslados",
+            "Traslado",
+            "Costo traslados",
+            "Costo de traslados",
+            "Total traslados",
+        ],
+        # Si la planilla trae la disposición separada por residuo,
+        # estas columnas se suman automáticamente.
+        "Costo_RAD": [
+            "Costo_RAD",
+            "Costo RAD",
+            "RAD disposición",
+            "RAD disposicion",
+            "RAD",
+        ],
+        "Costo_Corteza": [
+            "Costo_Corteza",
+            "Costo Corteza",
+            "Corteza disposición",
+            "Corteza disposicion",
+            "Corteza",
+        ],
+        "Costo_Escoria": [
+            "Costo_Escoria",
+            "Costo Escoria",
+            "Escoria disposición",
+            "Escoria disposicion",
+            "Escoria",
+        ],
+        "Costo_Cenizas": [
+            "Costo_Cenizas",
+            "Costo Cenizas",
+            "Costo Ceniza",
+            "Cenizas disposición",
+            "Cenizas disposicion",
+            "Ceniza disposición",
+            "Ceniza disposicion",
+            "Cenizas",
+            "Ceniza",
+        ],
         "Adicionales": [
             "Adicionales",
         ],
@@ -992,6 +1050,72 @@ def cargar_datos(ruta_excel):
     for columna in COLUMNAS_TONELADAS:
         datos[columna] = datos[columna].apply(limpiar_numero)
 
+    # Limpieza y construcción flexible del detalle de costos de residuos.
+    columnas_costos_disposicion = [
+        "Costo_RAD",
+        "Costo_Corteza",
+        "Costo_Escoria",
+        "Costo_Cenizas",
+    ]
+
+    for columna in [
+        "Disposicion_residuos",
+        "Traslados_residuos",
+        *columnas_costos_disposicion,
+    ]:
+        if columna in datos.columns:
+            datos[columna] = datos[columna].apply(limpiar_numero)
+
+    # Cuando no existe una columna de disposición total, se obtiene
+    # sumando los costos mensuales de RAD, corteza, escoria y cenizas.
+    columnas_disposicion_disponibles = [
+        columna
+        for columna in columnas_costos_disposicion
+        if columna in datos.columns
+    ]
+
+    if (
+        "Disposicion_residuos" not in datos.columns
+        and columnas_disposicion_disponibles
+    ):
+        datos["Disposicion_residuos"] = datos[
+            columnas_disposicion_disponibles
+        ].sum(axis=1)
+
+    # Transporte_residuos normalmente corresponde al total mensual de
+    # disposición + traslados. Si solo viene uno de los dos conceptos,
+    # el otro se calcula por diferencia, sin permitir valores negativos.
+    if (
+        "Disposicion_residuos" in datos.columns
+        and "Traslados_residuos" not in datos.columns
+    ):
+        datos["Traslados_residuos"] = (
+            datos["Transporte_residuos"]
+            - datos["Disposicion_residuos"]
+        ).clip(lower=0)
+
+    if (
+        "Traslados_residuos" in datos.columns
+        and "Disposicion_residuos" not in datos.columns
+    ):
+        datos["Disposicion_residuos"] = (
+            datos["Transporte_residuos"]
+            - datos["Traslados_residuos"]
+        ).clip(lower=0)
+
+    if "Disposicion_residuos" not in datos.columns:
+        datos["Disposicion_residuos"] = 0.0
+
+    if "Traslados_residuos" not in datos.columns:
+        datos["Traslados_residuos"] = 0.0
+
+    tiene_detalle_costos_residuos = bool(
+        datos["Disposicion_residuos"].abs().sum() > 0
+        and datos["Traslados_residuos"].abs().sum() > 0
+    )
+
+    datos["Tiene_detalle_costos_residuos"] = tiene_detalle_costos_residuos
+
     datos["Fecha"] = datos.apply(
         lambda fila: convertir_fecha_desde_mes_periodo(
             fila["Mes"],
@@ -1021,6 +1145,8 @@ def cargar_datos(ruta_excel):
     datos["Servicio_fijo_MM"] = datos["Servicio_fijo"] / 1_000_000
     datos["Transporte_residuos_MM"] = datos["Transporte_residuos"] / 1_000_000
     datos["Adicionales_MM"] = datos["Adicionales"] / 1_000_000
+    datos["Disposicion_residuos_MM"] = datos["Disposicion_residuos"] / 1_000_000
+    datos["Traslados_residuos_MM"] = datos["Traslados_residuos"] / 1_000_000
 
     datos["Costo_transporte_por_ton"] = datos.apply(
         lambda fila: (
@@ -1386,6 +1512,12 @@ def mostrar_panel():
         else 0
     )
 
+    promedio_transporte_mensual = (
+        total_transporte / cantidad_meses
+        if cantidad_meses
+        else 0
+    )
+
     promedio_ton_mensual = (
         total_toneladas / cantidad_meses
         if cantidad_meses
@@ -1460,9 +1592,9 @@ def mostrar_panel():
             "amarillo",
         ),
         (
-            "Toneladas gestionadas",
-            toneladas(total_toneladas),
-            "Total operacional del período",
+            "Valor promedio mensual<br>(Neto)",
+            pesos_html(promedio_neto_mensual),
+            f"{cantidad_meses} meses considerados",
             "azul",
         ),
     ]
@@ -1569,9 +1701,9 @@ def mostrar_panel():
 
     with col_costo2:
         tarjeta(
-            "Transporte residuos",
-            pesos_html(total_transporte),
-            "Costo total asociado a transporte",
+            "Promedio mensual<br>transporte de residuos",
+            pesos_html(promedio_transporte_mensual),
+            f"{cantidad_meses} meses considerados",
             "verde",
         )
 
@@ -1589,6 +1721,118 @@ def mostrar_panel():
             pesos_html(promedio_neto_mensual),
             f"{cantidad_meses} meses considerados",
             "morado",
+        )
+
+    # Gráfico mensual de disposición final y traslados.
+    tiene_detalle_costos_residuos = bool(
+        "Tiene_detalle_costos_residuos" in datos_filtrados.columns
+        and datos_filtrados["Tiene_detalle_costos_residuos"].any()
+    )
+
+    if tiene_detalle_costos_residuos:
+        costos_residuos_mensual = (
+            datos_filtrados
+            .groupby(
+                [
+                    "Fecha",
+                    "Periodo_Texto",
+                    "Periodo_Orden",
+                ],
+                as_index=False,
+            )[
+                [
+                    "Disposicion_residuos",
+                    "Traslados_residuos",
+                ]
+            ]
+            .sum()
+            .sort_values("Fecha")
+        )
+
+        costos_residuos_largo = costos_residuos_mensual.melt(
+            id_vars=[
+                "Fecha",
+                "Periodo_Texto",
+                "Periodo_Orden",
+            ],
+            value_vars=[
+                "Disposicion_residuos",
+                "Traslados_residuos",
+            ],
+            var_name="Concepto",
+            value_name="Monto",
+        )
+
+        costos_residuos_largo["Concepto"] = costos_residuos_largo[
+            "Concepto"
+        ].map(
+            {
+                "Disposicion_residuos": "Disposición final",
+                "Traslados_residuos": "Traslados",
+            }
+        )
+
+        costos_residuos_largo["Monto_MM"] = (
+            costos_residuos_largo["Monto"] / 1_000_000
+        )
+        costos_residuos_largo["Monto_Texto"] = costos_residuos_largo[
+            "Monto"
+        ].apply(pesos_texto)
+
+        orden_periodos_costos = costos_residuos_mensual[
+            "Periodo_Texto"
+        ].tolist()
+
+        figura_costos_residuos = px.line(
+            costos_residuos_largo,
+            x="Periodo_Texto",
+            y="Monto_MM",
+            color="Concepto",
+            markers=True,
+            title="Evolución mensual: disposición final y traslados de residuos",
+            template="plotly_white",
+            category_orders={
+                "Periodo_Texto": orden_periodos_costos,
+                "Concepto": [
+                    "Disposición final",
+                    "Traslados",
+                ],
+            },
+            color_discrete_map={
+                "Disposición final": "#16a34a",
+                "Traslados": "#ea580c",
+            },
+            custom_data=["Monto_Texto"],
+        )
+
+        figura_costos_residuos.update_traces(
+            line=dict(width=3),
+            marker=dict(size=7),
+            hovertemplate=(
+                "<b>%{x}</b>"
+                "<br>%{fullData.name}: %{customdata[0]}"
+                "<extra></extra>"
+            ),
+        )
+
+        figura_costos_residuos = formato_grafico(
+            figura_costos_residuos,
+            410,
+        )
+        figura_costos_residuos = aplicar_eje_millones_clp(
+            figura_costos_residuos
+        )
+
+        st.plotly_chart(
+            figura_costos_residuos,
+            use_container_width=True,
+        )
+
+    else:
+        st.info(
+            "Para mostrar el gráfico de disposición y traslados, la planilla "
+            "debe incluir las columnas 'Disposición final' y 'Traslados', o "
+            "bien los costos separados de RAD, Corteza, Escoria y Cenizas."
         )
 
     # -----------------------------------------------------
