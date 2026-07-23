@@ -30,7 +30,7 @@ SELFIE_BASE = "selfie"
 AUTOR = "Ricardo Grez"
 CARGO = "Administrador de Contrato"
 EMPRESA = "SAIVAM"
-VERSION = "1.0"
+VERSION = "1.2 - Corrección carga Excel y KPI adicionales"
 
 CONTRATO = "CW2307646"
 NOMBRE_CONTRATO = "Aseo Industrial y Gestión de Residuos"
@@ -71,6 +71,7 @@ COLUMNAS_DETALLE_ADICIONALES = [
     "Reembolso",
     "Insumos_arriendo_herramientas",
     "Horas_extras",
+    "Bonificaciones",
     "Cot_adicionales",
 ]
 
@@ -178,7 +179,7 @@ def buscar_archivo_excel():
 
     candidatos = [
         ruta
-        for ruta in set(candidatos)
+        for ruta in sorted(set(candidatos))
         if os.path.isfile(ruta)
         and not os.path.basename(ruta).startswith("~$")
     ]
@@ -186,15 +187,33 @@ def buscar_archivo_excel():
     if not candidatos:
         return None
 
-    # Se selecciona la versión más reciente y, ante igualdad,
-    # la de mayor tamaño. Así se reconoce también un archivo
-    # llamado RESUMEN ESTADOS DE PAGO(1).xlsx.
-    return max(
-        candidatos,
-        key=lambda ruta: (
+    def puntaje_archivo(ruta):
+        try:
+            cantidad_columnas = len(
+                pd.read_excel(ruta, nrows=0).columns
+            )
+        except Exception:
+            cantidad_columnas = 0
+
+        nombre_exacto = int(
+            os.path.basename(ruta)
+            in {
+                f"{NOMBRE_BASE_EXCEL}.xlsx",
+                f"{NOMBRE_BASE_EXCEL}.xlsm",
+                f"{NOMBRE_BASE_EXCEL}.xls",
+            }
+        )
+
+        return (
+            cantidad_columnas,
+            nombre_exacto,
             os.path.getmtime(ruta),
             os.path.getsize(ruta),
-        ),
+        )
+
+    return max(
+        candidatos,
+        key=puntaje_archivo,
     )
 
 
@@ -250,17 +269,34 @@ def buscar_columna_por_fragmento(columnas, fragmentos):
 
 
 def limpiar_numero(valor):
-    if pd.isna(valor):
+    if valor is None:
         return 0.0
+
+    # Esta validación evita el error:
+    # "The truth value of a Series is ambiguous".
+    if isinstance(valor, (pd.Series, pd.DataFrame)):
+        raise TypeError(
+            "Se recibió una Serie/DataFrame en limpiar_numero. "
+            "Revisa encabezados duplicados en la planilla."
+        )
+
+    try:
+        if pd.isna(valor):
+            return 0.0
+    except (TypeError, ValueError):
+        pass
 
     if isinstance(valor, (int, float)):
         return float(valor)
 
-    texto = str(valor)
+    texto = str(valor).strip().lower()
 
     texto = texto.replace("$", "")
+    texto = texto.replace("clp", "")
+    texto = texto.replace("toneladas", "")
+    texto = texto.replace("tonelada", "")
+    texto = texto.replace("tons", "")
     texto = texto.replace("ton", "")
-    texto = texto.replace("t", "")
     texto = texto.replace(" ", "")
 
     texto = re.sub(
@@ -269,20 +305,25 @@ def limpiar_numero(valor):
         texto,
     )
 
-    if texto in ["", "-"]:
+    if texto in ["", "-", ".", ","]:
         return 0.0
 
+    # Formato chileno: 1.234.567,89
     if "," in texto:
         texto = texto.replace(".", "")
         texto = texto.replace(",", ".")
 
-    elif "." in texto and len(texto.split(".")[-1]) == 3:
-        texto = texto.replace(".", "")
+    # Formato de miles sin decimales: 1.234.567
+    elif texto.count(".") >= 1:
+        partes = texto.split(".")
+
+        if all(len(parte) == 3 for parte in partes[1:]):
+            texto = "".join(partes)
 
     try:
         return float(texto)
 
-    except ValueError:
+    except (TypeError, ValueError):
         return 0.0
 
 
@@ -873,13 +914,10 @@ def validar_acceso():
 
 @st.cache_data
 def cargar_datos(ruta_excel, firma_archivo=None):
-    # firma_archivo obliga a recargar cuando cambia el Excel, aunque conserve el mismo nombre.
+    """Carga la planilla, normaliza encabezados y evita columnas duplicadas."""
     _ = firma_archivo
-    datos = pd.read_excel(ruta_excel)
 
-    # Se eliminan solamente filas completamente vacías.
-    # No se eliminan columnas vacías porque las columnas H a K
-    # corresponden al desglose futuro de Adicionales.
+    datos = pd.read_excel(ruta_excel)
     datos = datos.dropna(how="all")
 
     datos.columns = (
@@ -891,106 +929,14 @@ def cargar_datos(ruta_excel, firma_archivo=None):
     datos = datos.loc[
         :,
         ~datos.columns.str.contains(
-            "Unnamed",
+            r"^Unnamed",
             case=False,
+            regex=True,
         ),
     ]
 
-    # Estructura nueva de la planilla:
-    # A Mes | B Periodo | C Servicio fijo | D Transporte residuos
-    # E Disposicion | F Traslado | G Adicionales
-    # H Reembolso | I Insumos, arriendo y herramientas
-    # J Horas Extras | K Cot Adicionales
-    # L Total neto | M IVA | N Valor total
-    # O:S toneladas.
-    columnas_planilla = list(datos.columns)
+    columnas_originales = list(datos.columns)
 
-    esquema_nuevo = [
-        "Mes",
-        "Periodo",
-        "Servicio_fijo",
-        "Transporte_residuos",
-        "Disposicion_residuos",
-        "Traslados_residuos",
-        "Adicionales",
-        "Reembolso",
-        "Insumos_arriendo_herramientas",
-        "Horas_extras",
-        "Cot_adicionales",
-        "Total_neto",
-        "IVA_19",
-        "Total_bruto",
-        "Ton_RAD",
-        "Ton_Corteza_G3",
-        "Ton_Escoria",
-        "Ton_Cenizas",
-        "Ton_Total",
-    ]
-
-    esquema_anterior = [
-        "Mes",
-        "Periodo",
-        "Servicio_fijo",
-        "Transporte_residuos",
-        "Disposicion_residuos",
-        "Traslados_residuos",
-        "Adicionales",
-        "Total_neto",
-        "IVA_19",
-        "Total_bruto",
-        "Ton_RAD",
-        "Ton_Corteza_G3",
-        "Ton_Escoria",
-        "Ton_Cenizas",
-        "Ton_Total",
-    ]
-
-    encabezados_normalizados = [
-        normalizar(columna)
-        for columna in columnas_planilla
-    ]
-
-    usa_esquema_nuevo = bool(
-        len(columnas_planilla) >= 19
-        or any(
-            texto in encabezados_normalizados
-            for texto in [
-                "reembolso",
-                "rembolso",
-                "insumos, arriendo y herramientas",
-                "horas extras",
-                "cot adicionales",
-            ]
-        )
-    )
-
-    esquema_posicional = (
-        esquema_nuevo
-        if usa_esquema_nuevo
-        else esquema_anterior
-    )
-
-    renombres_posicionales = {}
-
-    for indice, columna_objetivo in enumerate(esquema_posicional):
-        if indice >= len(columnas_planilla):
-            break
-
-        columna_actual = columnas_planilla[indice]
-
-        if (
-            columna_actual != columna_objetivo
-            and columna_objetivo not in datos.columns
-        ):
-            renombres_posicionales[columna_actual] = columna_objetivo
-
-    if renombres_posicionales:
-        datos = datos.rename(columns=renombres_posicionales)
-
-    renombres = {}
-
-    # Se aceptan distintos nombres de encabezado para evitar errores
-    # cuando la planilla usa títulos más descriptivos.
     equivalencias = {
         "Mes": [
             "Mes",
@@ -1002,14 +948,14 @@ def cargar_datos(ruta_excel, firma_archivo=None):
         "Servicio_fijo": [
             "Servicio_fijo",
             "Servicio fijo",
+            "Contrato fijo",
         ],
         "Transporte_residuos": [
             "Transporte_residuos",
             "Transporte residuos",
             "Transporte de residuos",
+            "Total transporte",
         ],
-        # Columnas opcionales para separar el costo mensual de
-        # disposición final y traslados de residuos.
         "Disposicion_residuos": [
             "Disposicion_residuos",
             "Disposición_residuos",
@@ -1020,9 +966,7 @@ def cargar_datos(ruta_excel, firma_archivo=None):
             "Disposición final",
             "Disposicion final",
             "Total disposición",
-            "Total Disposición",
             "Total disposicion",
-            "Total disposición final",
             "Disp. Final",
         ],
         "Traslados_residuos": [
@@ -1034,28 +978,23 @@ def cargar_datos(ruta_excel, firma_archivo=None):
             "Costo de traslados",
             "Total traslados",
         ],
-        # Si la planilla trae la disposición separada por residuo,
-        # estas columnas se suman automáticamente.
         "Costo_RAD": [
             "Costo_RAD",
             "Costo RAD",
             "RAD disposición",
             "RAD disposicion",
-            "RAD",
         ],
         "Costo_Corteza": [
             "Costo_Corteza",
             "Costo Corteza",
             "Corteza disposición",
             "Corteza disposicion",
-            "Corteza",
         ],
         "Costo_Escoria": [
             "Costo_Escoria",
             "Costo Escoria",
             "Escoria disposición",
             "Escoria disposicion",
-            "Escoria",
         ],
         "Costo_Cenizas": [
             "Costo_Cenizas",
@@ -1063,10 +1002,6 @@ def cargar_datos(ruta_excel, firma_archivo=None):
             "Costo Ceniza",
             "Cenizas disposición",
             "Cenizas disposicion",
-            "Ceniza disposición",
-            "Ceniza disposicion",
-            "Cenizas",
-            "Ceniza",
         ],
         "Adicionales": [
             "Adicionales",
@@ -1091,11 +1026,18 @@ def cargar_datos(ruta_excel, firma_archivo=None):
             "Horas extra",
             "HH Extras",
         ],
+        "Bonificaciones": [
+            "Bonificaciones",
+            "Bonificación",
+            "Bonificacion",
+            "Bonos",
+        ],
         "Cot_adicionales": [
             "Cot_adicionales",
             "Cot Adicionales",
             "Cotizaciones adicionales",
             "Cotización adicionales",
+            "Cotizacion adicionales",
         ],
         "Total_neto": [
             "Total_neto",
@@ -1108,6 +1050,7 @@ def cargar_datos(ruta_excel, firma_archivo=None):
             "IVA_19",
             "IVA 19",
             "IVA 19%",
+            "IVA",
         ],
         "Total_bruto": [
             "Total_bruto",
@@ -1123,152 +1066,169 @@ def cargar_datos(ruta_excel, firma_archivo=None):
         "Ton_RAD": [
             "Ton_RAD",
             "Ton RAD",
+            "RAD ton",
         ],
         "Ton_Corteza_G3": [
             "Ton_Corteza_G3",
             "Ton Corteza G3",
+            "Ton_Corteza",
+            "Ton Corteza",
+            "Corteza G3",
         ],
         "Ton_Escoria": [
             "Ton_Escoria",
             "Ton Escoria",
+            "Escoria ton",
         ],
         "Ton_Cenizas": [
             "Ton_Cenizas",
             "Ton Cenizas",
+            "Ton Ceniza",
+            "Cenizas ton",
         ],
         "Ton_Total": [
             "Ton_Total",
             "Ton Total",
             "Toneladas totales",
+            "Total ton",
         ],
     }
 
-    for columna_objetivo, nombres_posibles in equivalencias.items():
-        for nombre_posible in nombres_posibles:
-            columna_encontrada = buscar_columna(
-                datos.columns,
-                nombre_posible,
-            )
+    # -----------------------------------------------------
+    # 1. MAPEO POR ENCABEZADO
+    # -----------------------------------------------------
+    mapa_alias = {}
 
-            if columna_encontrada:
-                renombres[columna_encontrada] = columna_objetivo
-                break
+    for objetivo, alias in equivalencias.items():
+        for nombre in alias:
+            mapa_alias[normalizar(nombre)] = objetivo
 
-    datos = datos.rename(columns=renombres)
+    renombres = {}
+    objetivos_asignados = set()
 
-    # Respaldo para encabezados con espacios, texto adicional o abreviaciones.
-    # Se consideran directamente las nuevas columnas E y F cuando sus
-    # encabezados contienen Disposicion y Traslado.
-    if "Disposicion_residuos" not in datos.columns:
-        columna_disposicion = buscar_columna_por_fragmento(
-            datos.columns,
-            [
-                "disposicion",
-                "disposición",
-            ],
-        )
+    for columna in columnas_originales:
+        columna_normalizada = normalizar(columna)
+        objetivo = mapa_alias.get(columna_normalizada)
 
-        if columna_disposicion:
-            datos = datos.rename(
-                columns={
-                    columna_disposicion: "Disposicion_residuos",
-                }
-            )
+        if not objetivo:
+            if columna_normalizada.startswith("servicio fi"):
+                objetivo = "Servicio_fijo"
+            elif columna_normalizada.startswith("contrato fi"):
+                objetivo = "Servicio_fijo"
+            elif columna_normalizada.startswith("transporte re"):
+                objetivo = "Transporte_residuos"
+            elif "disposici" in columna_normalizada:
+                objetivo = "Disposicion_residuos"
+            elif "traslad" in columna_normalizada:
+                objetivo = "Traslados_residuos"
+            elif columna_normalizada.startswith("adicionale"):
+                objetivo = "Adicionales"
+            elif "rembols" in columna_normalizada or "reembols" in columna_normalizada:
+                objetivo = "Reembolso"
+            elif columna_normalizada.startswith("insumos"):
+                objetivo = "Insumos_arriendo_herramientas"
+            elif columna_normalizada.startswith("horas extr"):
+                objetivo = "Horas_extras"
+            elif columna_normalizada.startswith("bonific"):
+                objetivo = "Bonificaciones"
+            elif columna_normalizada.startswith("cot adicion"):
+                objetivo = "Cot_adicionales"
+            elif columna_normalizada.startswith("total net"):
+                objetivo = "Total_neto"
+            elif columna_normalizada.startswith("iva"):
+                objetivo = "IVA_19"
+            elif (
+                columna_normalizada.startswith("valor tot")
+                or columna_normalizada.startswith("total bruto")
+            ):
+                objetivo = "Total_bruto"
+            elif columna_normalizada.startswith("ton rad"):
+                objetivo = "Ton_RAD"
+            elif columna_normalizada.startswith("ton corteza"):
+                objetivo = "Ton_Corteza_G3"
+            elif columna_normalizada.startswith("ton escori"):
+                objetivo = "Ton_Escoria"
+            elif columna_normalizada.startswith("ton ceniz"):
+                objetivo = "Ton_Cenizas"
+            elif columna_normalizada.startswith("ton total"):
+                objetivo = "Ton_Total"
 
-    if "Traslados_residuos" not in datos.columns:
-        columna_traslado = buscar_columna_por_fragmento(
-            datos.columns,
-            [
-                "traslado",
-                "traslados",
-            ],
-        )
+        # Solo una columna puede alimentar cada campo objetivo.
+        if objetivo and objetivo not in objetivos_asignados:
+            renombres[columna] = objetivo
+            objetivos_asignados.add(objetivo)
 
-        if columna_traslado:
-            datos = datos.rename(
-                columns={
-                    columna_traslado: "Traslados_residuos",
-                }
-            )
+    if renombres:
+        datos = datos.rename(columns=renombres)
 
-    # Las cuatro columnas de desglose son opcionales.
-    # Se crean en cero cuando aún no tienen información.
-    for columna in COLUMNAS_DETALLE_ADICIONALES:
-        if columna not in datos.columns:
-            datos[columna] = 0.0
-
-    # Limpiar primero los campos monetarios disponibles para poder
-    # reconstruir totales cuando una columna venga vacía o no exista.
-    for columna in [
+    # -----------------------------------------------------
+    # 2. RESPALDO POR POSICIÓN
+    # Solo completa columnas que no pudieron identificarse por nombre.
+    # -----------------------------------------------------
+    esquema_20 = [
+        "Mes",
+        "Periodo",
         "Servicio_fijo",
         "Transporte_residuos",
+        "Disposicion_residuos",
+        "Traslados_residuos",
         "Adicionales",
-        *COLUMNAS_DETALLE_ADICIONALES,
+        "Reembolso",
+        "Insumos_arriendo_herramientas",
+        "Horas_extras",
+        "Bonificaciones",
+        "Cot_adicionales",
         "Total_neto",
         "IVA_19",
         "Total_bruto",
-    ]:
-        if columna in datos.columns:
-            datos[columna] = datos[columna].apply(limpiar_numero)
+        "Ton_RAD",
+        "Ton_Corteza_G3",
+        "Ton_Escoria",
+        "Ton_Cenizas",
+        "Ton_Total",
+    ]
 
-    datos["Adicionales_desglosados"] = datos[
-        COLUMNAS_DETALLE_ADICIONALES
-    ].sum(axis=1)
+    esquema_19 = [
+        "Mes",
+        "Periodo",
+        "Servicio_fijo",
+        "Transporte_residuos",
+        "Disposicion_residuos",
+        "Traslados_residuos",
+        "Adicionales",
+        "Reembolso",
+        "Insumos_arriendo_herramientas",
+        "Horas_extras",
+        "Cot_adicionales",
+        "Total_neto",
+        "IVA_19",
+        "Total_bruto",
+        "Ton_RAD",
+        "Ton_Corteza_G3",
+        "Ton_Escoria",
+        "Ton_Cenizas",
+        "Ton_Total",
+    ]
 
-    # Si Adicionales no existe, se obtiene desde el desglose.
-    # Si existe, se conserva su valor y solo se completa cuando esté vacío.
-    if "Adicionales" not in datos.columns:
-        datos["Adicionales"] = datos["Adicionales_desglosados"]
-    else:
-        mascara_adicionales_vacios = (
-            datos["Adicionales"].eq(0)
-            & datos["Adicionales_desglosados"].gt(0)
-        )
+    esquema_15 = [
+        "Mes",
+        "Periodo",
+        "Servicio_fijo",
+        "Transporte_residuos",
+        "Disposicion_residuos",
+        "Traslados_residuos",
+        "Adicionales",
+        "Total_neto",
+        "IVA_19",
+        "Total_bruto",
+        "Ton_RAD",
+        "Ton_Corteza_G3",
+        "Ton_Escoria",
+        "Ton_Cenizas",
+        "Ton_Total",
+    ]
 
-        datos.loc[
-            mascara_adicionales_vacios,
-            "Adicionales",
-        ] = datos.loc[
-            mascara_adicionales_vacios,
-            "Adicionales_desglosados",
-        ]
-
-    # Respaldos de cálculo para mantener operativa la aplicación
-    # aunque cambie el orden o el nombre de las columnas.
-    if (
-        "Total_neto" not in datos.columns
-        and all(
-            columna in datos.columns
-            for columna in [
-                "Servicio_fijo",
-                "Transporte_residuos",
-                "Adicionales",
-            ]
-        )
-    ):
-        datos["Total_neto"] = (
-            datos["Servicio_fijo"]
-            + datos["Transporte_residuos"]
-            + datos["Adicionales"]
-        )
-
-    if (
-        "IVA_19" not in datos.columns
-        and "Total_neto" in datos.columns
-    ):
-        datos["IVA_19"] = datos["Total_neto"] * 0.19
-
-    if (
-        "Total_bruto" not in datos.columns
-        and "Total_neto" in datos.columns
-        and "IVA_19" in datos.columns
-    ):
-        datos["Total_bruto"] = (
-            datos["Total_neto"]
-            + datos["IVA_19"]
-        )
-
-    columnas_requeridas = [
+    esquema_13 = [
         "Mes",
         "Periodo",
         "Servicio_fijo",
@@ -1284,17 +1244,103 @@ def cargar_datos(ruta_excel, firma_archivo=None):
         "Ton_Total",
     ]
 
-    faltantes = [
+    cantidad_columnas = len(columnas_originales)
+
+    if cantidad_columnas >= 20:
+        esquema_posicional = esquema_20
+    elif cantidad_columnas == 19:
+        esquema_posicional = esquema_19
+    elif cantidad_columnas >= 15:
+        esquema_posicional = esquema_15
+    else:
+        esquema_posicional = esquema_13
+
+    columnas_actuales = list(datos.columns)
+    renombres_posicionales = {}
+    objetivos_existentes = set(datos.columns)
+
+    for indice, objetivo in enumerate(esquema_posicional):
+        if indice >= len(columnas_actuales):
+            break
+
+        if objetivo in objetivos_existentes:
+            continue
+
+        columna_actual = columnas_actuales[indice]
+
+        # No renombrar una columna ya reconocida como otro campo canónico.
+        if columna_actual in equivalencias:
+            continue
+
+        if columna_actual in esquema_posicional:
+            continue
+
+        renombres_posicionales[columna_actual] = objetivo
+        objetivos_existentes.add(objetivo)
+
+    if renombres_posicionales:
+        datos = datos.rename(columns=renombres_posicionales)
+
+    # Respaldo para tonelajes: las últimas cinco columnas suelen ser
+    # RAD, Corteza G3, Escoria, Cenizas y Total.
+    objetivos_toneladas = [
+        "Ton_RAD",
+        "Ton_Corteza_G3",
+        "Ton_Escoria",
+        "Ton_Cenizas",
+        "Ton_Total",
+    ]
+
+    columnas_actuales = list(datos.columns)
+
+    if len(columnas_actuales) >= 5:
+        ultimas_cinco = columnas_actuales[-5:]
+        renombres_toneladas = {}
+
+        for columna_actual, objetivo in zip(
+            ultimas_cinco,
+            objetivos_toneladas,
+        ):
+            if objetivo not in datos.columns and columna_actual not in objetivos_toneladas:
+                renombres_toneladas[columna_actual] = objetivo
+
+        if renombres_toneladas:
+            datos = datos.rename(columns=renombres_toneladas)
+
+    # Seguridad final: nunca permitir nombres duplicados.
+    if datos.columns.duplicated().any():
+        columnas_consolidadas = {}
+
+        for nombre in pd.unique(datos.columns):
+            seleccion = datos.loc[:, datos.columns == nombre]
+
+            if seleccion.shape[1] == 1:
+                columnas_consolidadas[nombre] = seleccion.iloc[:, 0]
+            else:
+                columnas_consolidadas[nombre] = seleccion.bfill(axis=1).iloc[:, 0]
+
+        datos = pd.DataFrame(columnas_consolidadas)
+
+    # -----------------------------------------------------
+    # 3. VALIDACIÓN Y LIMPIEZA
+    # -----------------------------------------------------
+    faltantes_principales = [
         columna
-        for columna in columnas_requeridas
+        for columna in [
+            "Mes",
+            "Periodo",
+            "Servicio_fijo",
+            "Transporte_residuos",
+        ]
         if columna not in datos.columns
     ]
 
-    if faltantes:
+    if faltantes_principales:
         raise ValueError(
-            "Faltan columnas en la planilla después de aplicar "
-            "el mapeo automático: "
-            + ", ".join(faltantes)
+            "No fue posible reconocer las columnas principales: "
+            + ", ".join(faltantes_principales)
+            + ". Encabezados detectados: "
+            + ", ".join(map(str, columnas_originales))
         )
 
     datos = datos[
@@ -1305,81 +1351,197 @@ def cargar_datos(ruta_excel, firma_archivo=None):
         ~datos["Mes"]
         .astype(str)
         .str.lower()
-        .str.contains("total")
+        .str.contains("total", na=False)
     ].copy()
 
-    for columna in COLUMNAS_MONTO:
-        datos[columna] = datos[columna].apply(limpiar_numero)
-
-    for columna in COLUMNAS_TONELADAS:
-        datos[columna] = datos[columna].apply(limpiar_numero)
-
-    # Limpieza y construcción flexible del detalle de costos de residuos.
-    columnas_costos_disposicion = [
+    # Todas estas columnas son opcionales y no deben detener el panel.
+    columnas_opcionales = [
+        "Disposicion_residuos",
+        "Traslados_residuos",
+        "Adicionales",
+        *COLUMNAS_DETALLE_ADICIONALES,
+        "Total_neto",
+        "IVA_19",
+        "Total_bruto",
+        "Ton_RAD",
+        "Ton_Corteza_G3",
+        "Ton_Escoria",
+        "Ton_Cenizas",
+        "Ton_Total",
         "Costo_RAD",
         "Costo_Corteza",
         "Costo_Escoria",
         "Costo_Cenizas",
     ]
 
-    for columna in [
+    for columna in columnas_opcionales:
+        if columna not in datos.columns:
+            datos[columna] = 0.0
+
+    columnas_numericas = [
+        "Servicio_fijo",
+        "Transporte_residuos",
         "Disposicion_residuos",
         "Traslados_residuos",
-        *columnas_costos_disposicion,
-    ]:
-        if columna in datos.columns:
-            datos[columna] = datos[columna].apply(limpiar_numero)
-
-    # Cuando no existe una columna de disposición total, se obtiene
-    # sumando los costos mensuales de RAD, corteza, escoria y cenizas.
-    columnas_disposicion_disponibles = [
-        columna
-        for columna in columnas_costos_disposicion
-        if columna in datos.columns
+        "Adicionales",
+        *COLUMNAS_DETALLE_ADICIONALES,
+        "Total_neto",
+        "IVA_19",
+        "Total_bruto",
+        "Ton_RAD",
+        "Ton_Corteza_G3",
+        "Ton_Escoria",
+        "Ton_Cenizas",
+        "Ton_Total",
+        "Costo_RAD",
+        "Costo_Corteza",
+        "Costo_Escoria",
+        "Costo_Cenizas",
     ]
 
-    if (
-        "Disposicion_residuos" not in datos.columns
-        and columnas_disposicion_disponibles
-    ):
-        datos["Disposicion_residuos"] = datos[
-            columnas_disposicion_disponibles
-        ].sum(axis=1)
+    for columna in columnas_numericas:
+        datos[columna] = datos[columna].map(limpiar_numero)
 
-    # Transporte_residuos normalmente corresponde al total mensual de
-    # disposición + traslados. Si solo viene uno de los dos conceptos,
-    # el otro se calcula por diferencia, sin permitir valores negativos.
-    if (
-        "Disposicion_residuos" in datos.columns
-        and "Traslados_residuos" not in datos.columns
-    ):
-        datos["Traslados_residuos"] = (
-            datos["Transporte_residuos"]
-            - datos["Disposicion_residuos"]
-        ).clip(lower=0)
+    # -----------------------------------------------------
+    # 4. CÁLCULOS DE RESPALDO
+    # -----------------------------------------------------
+    datos["Adicionales_desglosados"] = datos[
+        COLUMNAS_DETALLE_ADICIONALES
+    ].sum(axis=1)
 
-    if (
-        "Traslados_residuos" in datos.columns
-        and "Disposicion_residuos" not in datos.columns
-    ):
-        datos["Disposicion_residuos"] = (
-            datos["Transporte_residuos"]
-            - datos["Traslados_residuos"]
-        ).clip(lower=0)
+    mascara_adicionales = (
+        datos["Adicionales"].eq(0)
+        & datos["Adicionales_desglosados"].gt(0)
+    )
 
-    if "Disposicion_residuos" not in datos.columns:
-        datos["Disposicion_residuos"] = 0.0
+    datos.loc[
+        mascara_adicionales,
+        "Adicionales",
+    ] = datos.loc[
+        mascara_adicionales,
+        "Adicionales_desglosados",
+    ]
 
-    if "Traslados_residuos" not in datos.columns:
-        datos["Traslados_residuos"] = 0.0
+    total_neto_calculado = (
+        datos["Servicio_fijo"]
+        + datos["Transporte_residuos"]
+        + datos["Adicionales"]
+    )
 
-    tiene_detalle_costos_residuos = bool(
+    mascara_total_neto = (
+        datos["Total_neto"].eq(0)
+        & total_neto_calculado.ne(0)
+    )
+
+    datos.loc[
+        mascara_total_neto,
+        "Total_neto",
+    ] = total_neto_calculado[mascara_total_neto]
+
+    mascara_iva = (
+        datos["IVA_19"].eq(0)
+        & datos["Total_neto"].ne(0)
+    )
+
+    datos.loc[
+        mascara_iva,
+        "IVA_19",
+    ] = datos.loc[
+        mascara_iva,
+        "Total_neto",
+    ] * 0.19
+
+    total_bruto_calculado = (
+        datos["Total_neto"]
+        + datos["IVA_19"]
+    )
+
+    mascara_total_bruto = (
+        datos["Total_bruto"].eq(0)
+        & total_bruto_calculado.ne(0)
+    )
+
+    datos.loc[
+        mascara_total_bruto,
+        "Total_bruto",
+    ] = total_bruto_calculado[mascara_total_bruto]
+
+    toneladas_calculadas = datos[
+        [
+            "Ton_RAD",
+            "Ton_Corteza_G3",
+            "Ton_Escoria",
+            "Ton_Cenizas",
+        ]
+    ].sum(axis=1)
+
+    mascara_ton_total = (
+        datos["Ton_Total"].eq(0)
+        & toneladas_calculadas.gt(0)
+    )
+
+    datos.loc[
+        mascara_ton_total,
+        "Ton_Total",
+    ] = toneladas_calculadas[mascara_ton_total]
+
+    disposicion_por_residuo = datos[
+        [
+            "Costo_RAD",
+            "Costo_Corteza",
+            "Costo_Escoria",
+            "Costo_Cenizas",
+        ]
+    ].sum(axis=1)
+
+    mascara_disposicion = (
+        datos["Disposicion_residuos"].eq(0)
+        & disposicion_por_residuo.gt(0)
+    )
+
+    datos.loc[
+        mascara_disposicion,
+        "Disposicion_residuos",
+    ] = disposicion_por_residuo[mascara_disposicion]
+
+    # Si la planilla solo trae uno de los dos conceptos, calcular el otro
+    # por diferencia respecto del total de transporte.
+    mascara_traslado = (
+        datos["Traslados_residuos"].eq(0)
+        & datos["Disposicion_residuos"].gt(0)
+        & datos["Transporte_residuos"].gt(0)
+    )
+
+    datos.loc[
+        mascara_traslado,
+        "Traslados_residuos",
+    ] = (
+        datos.loc[mascara_traslado, "Transporte_residuos"]
+        - datos.loc[mascara_traslado, "Disposicion_residuos"]
+    ).clip(lower=0)
+
+    mascara_disposicion_desde_traslado = (
+        datos["Disposicion_residuos"].eq(0)
+        & datos["Traslados_residuos"].gt(0)
+        & datos["Transporte_residuos"].gt(0)
+    )
+
+    datos.loc[
+        mascara_disposicion_desde_traslado,
+        "Disposicion_residuos",
+    ] = (
+        datos.loc[mascara_disposicion_desde_traslado, "Transporte_residuos"]
+        - datos.loc[mascara_disposicion_desde_traslado, "Traslados_residuos"]
+    ).clip(lower=0)
+
+    datos["Tiene_detalle_costos_residuos"] = (
         datos["Disposicion_residuos"].abs().sum() > 0
         or datos["Traslados_residuos"].abs().sum() > 0
     )
 
-    datos["Tiene_detalle_costos_residuos"] = tiene_detalle_costos_residuos
-
+    # -----------------------------------------------------
+    # 5. FECHAS Y VARIABLES PARA EL PANEL
+    # -----------------------------------------------------
     datos["Fecha"] = datos.apply(
         lambda fila: convertir_fecha_desde_mes_periodo(
             fila["Mes"],
@@ -1416,8 +1578,13 @@ def cargar_datos(ruta_excel, firma_archivo=None):
     for columna in COLUMNAS_DETALLE_ADICIONALES:
         datos[f"{columna}_MM"] = datos[columna] / 1_000_000
 
-    datos["Disposicion_residuos_MM"] = datos["Disposicion_residuos"] / 1_000_000
-    datos["Traslados_residuos_MM"] = datos["Traslados_residuos"] / 1_000_000
+    datos["Disposicion_residuos_MM"] = (
+        datos["Disposicion_residuos"] / 1_000_000
+    )
+
+    datos["Traslados_residuos_MM"] = (
+        datos["Traslados_residuos"] / 1_000_000
+    )
 
     datos["Costo_transporte_por_ton"] = datos.apply(
         lambda fila: (
@@ -1774,6 +1941,14 @@ def mostrar_panel():
     total_escoria = float(datos_filtrados["Ton_Escoria"].sum())
     total_cenizas = float(datos_filtrados["Ton_Cenizas"].sum())
 
+    total_reembolso = float(datos_filtrados["Reembolso"].sum())
+    total_insumos = float(
+        datos_filtrados["Insumos_arriendo_herramientas"].sum()
+    )
+    total_horas_extras = float(datos_filtrados["Horas_extras"].sum())
+    total_bonificaciones = float(datos_filtrados["Bonificaciones"].sum())
+    total_cot_adicionales = float(datos_filtrados["Cot_adicionales"].sum())
+
     cantidad_meses = datos_filtrados["Periodo_Orden"].nunique()
 
     promedio_bruto_mensual = (
@@ -1922,6 +2097,54 @@ def mostrar_panel():
         ),
         unsafe_allow_html=True,
     )
+
+    # -----------------------------------------------------
+    # INDICADORES DE ADICIONALES
+    # -----------------------------------------------------
+
+    seccion("➕ Indicadores de adicionales")
+
+    tarjetas_adicionales = [
+        (
+            "Reembolso",
+            pesos_html(total_reembolso),
+            "Monto neto acumulado",
+            "azul",
+        ),
+        (
+            "Insumos, arriendo y herramientas",
+            pesos_html(total_insumos),
+            "Monto neto acumulado",
+            "naranjo",
+        ),
+        (
+            "Horas extras",
+            pesos_html(total_horas_extras),
+            "Monto neto acumulado",
+            "morado",
+        ),
+        (
+            "Bonificaciones",
+            pesos_html(total_bonificaciones),
+            "Monto neto acumulado",
+            "verde",
+        ),
+        (
+            "Cot. adicionales",
+            pesos_html(total_cot_adicionales),
+            "Monto neto acumulado",
+            "amarillo",
+        ),
+    ]
+
+    columnas_adicionales = st.columns(5)
+
+    for columna, datos_tarjeta in zip(
+        columnas_adicionales,
+        tarjetas_adicionales,
+    ):
+        with columna:
+            tarjeta(*datos_tarjeta)
 
     # -----------------------------------------------------
     # INDICADORES DE TRANSPORTE DE RESIDUOS
