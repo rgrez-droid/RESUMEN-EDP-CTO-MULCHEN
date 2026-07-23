@@ -161,6 +161,17 @@ def buscar_archivo_excel():
         "xls",
     ]
 
+    # Se prioriza siempre el archivo oficial con el nombre exacto.
+    # Esto evita que la aplicación lea una copia anterior del Excel.
+    for extension in extensiones:
+        ruta_exacta = f"{NOMBRE_BASE_EXCEL}.{extension}"
+
+        if (
+            os.path.isfile(ruta_exacta)
+            and not os.path.basename(ruta_exacta).startswith("~$")
+        ):
+            return ruta_exacta
+
     candidatos = []
 
     for extension in extensiones:
@@ -175,18 +186,10 @@ def buscar_archivo_excel():
         and not os.path.basename(ruta).startswith("~$")
     ]
 
-    if not candidatos:
-        return None
+    if candidatos:
+        return sorted(candidatos)[0]
 
-    # Usa la planilla actualizada más recientemente. Esto evita que
-    # Streamlit siga leyendo una copia antigua sin Disposicion/Traslado.
-    return max(
-        candidatos,
-        key=lambda ruta: (
-            os.path.getmtime(ruta),
-            os.path.getsize(ruta),
-        ),
-    )
+    return None
 
 
 def normalizar(texto):
@@ -887,6 +890,28 @@ def cargar_datos(ruta_excel, firma_archivo=None):
             case=False,
         ),
     ]
+
+    # La estructura oficial de la planilla utiliza:
+    # columna E = Disposicion
+    # columna F = Traslado
+    # Se asignan por posición para que el gráfico las reconozca incluso
+    # cuando Excel cambie levemente el texto o formato del encabezado.
+    columnas_planilla = list(datos.columns)
+
+    if len(columnas_planilla) >= 6:
+        renombres_ef = {}
+
+        columna_e = columnas_planilla[4]
+        columna_f = columnas_planilla[5]
+
+        if "Disposicion_residuos" not in datos.columns:
+            renombres_ef[columna_e] = "Disposicion_residuos"
+
+        if "Traslados_residuos" not in datos.columns:
+            renombres_ef[columna_f] = "Traslados_residuos"
+
+        if renombres_ef:
+            datos = datos.rename(columns=renombres_ef)
 
     renombres = {}
 
@@ -1721,10 +1746,10 @@ def mostrar_panel():
     )
 
     # -----------------------------------------------------
-    # RESIDUOS
+    # INDICADORES DE TRANSPORTE DE RESIDUOS
     # -----------------------------------------------------
 
-    seccion("⚖️ Toneladas acumuladas por tipo de residuo")
+    seccion("💰 Indicadores transporte de residuos")
 
     tarjetas_residuos = [
         (
@@ -1761,12 +1786,6 @@ def mostrar_panel():
     ):
         with columna:
             tarjeta(*datos_tarjeta)
-
-    # -----------------------------------------------------
-    # COSTO POR TONELADA
-    # -----------------------------------------------------
-
-    seccion("💰 Indicadores de costo por tonelada")
 
     col_costo1, col_costo2, col_costo3 = st.columns(3)
 
