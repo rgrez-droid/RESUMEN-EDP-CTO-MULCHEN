@@ -1,5 +1,6 @@
 import base64
 import glob
+import hashlib
 import os
 import re
 import unicodedata
@@ -160,23 +161,32 @@ def buscar_archivo_excel():
         "xls",
     ]
 
-    for extension in extensiones:
-        ruta = f"{NOMBRE_BASE_EXCEL}.{extension}"
-
-        if os.path.exists(ruta):
-            return ruta
-
-    archivos = []
+    candidatos = []
 
     for extension in extensiones:
-        archivos.extend(
+        candidatos.extend(
             glob.glob(f"*{NOMBRE_BASE_EXCEL}*.{extension}")
         )
 
-    if archivos:
-        return sorted(archivos)[0]
+    candidatos = [
+        ruta
+        for ruta in set(candidatos)
+        if os.path.isfile(ruta)
+        and not os.path.basename(ruta).startswith("~$")
+    ]
 
-    return None
+    if not candidatos:
+        return None
+
+    # Usa la planilla actualizada más recientemente. Esto evita que
+    # Streamlit siga leyendo una copia antigua sin Disposicion/Traslado.
+    return max(
+        candidatos,
+        key=lambda ruta: (
+            os.path.getmtime(ruta),
+            os.path.getsize(ruta),
+        ),
+    )
 
 
 def normalizar(texto):
@@ -209,6 +219,25 @@ def buscar_columna(columnas, nombre):
     return mapa.get(
         normalizar(nombre)
     )
+
+
+def buscar_columna_por_fragmento(columnas, fragmentos):
+    """Busca encabezados aunque contengan texto adicional o abreviaciones."""
+    fragmentos_normalizados = [
+        normalizar(fragmento)
+        for fragmento in fragmentos
+    ]
+
+    for columna in columnas:
+        columna_normalizada = normalizar(columna)
+
+        if any(
+            fragmento in columna_normalizada
+            for fragmento in fragmentos_normalizados
+        ):
+            return columna
+
+    return None
 
 
 def limpiar_numero(valor):
@@ -997,6 +1026,41 @@ def cargar_datos(ruta_excel, firma_archivo=None):
 
     datos = datos.rename(columns=renombres)
 
+    # Respaldo para encabezados con espacios, texto adicional o abreviaciones.
+    # Se consideran directamente las nuevas columnas E y F cuando sus
+    # encabezados contienen Disposicion y Traslado.
+    if "Disposicion_residuos" not in datos.columns:
+        columna_disposicion = buscar_columna_por_fragmento(
+            datos.columns,
+            [
+                "disposicion",
+                "disposición",
+            ],
+        )
+
+        if columna_disposicion:
+            datos = datos.rename(
+                columns={
+                    columna_disposicion: "Disposicion_residuos",
+                }
+            )
+
+    if "Traslados_residuos" not in datos.columns:
+        columna_traslado = buscar_columna_por_fragmento(
+            datos.columns,
+            [
+                "traslado",
+                "traslados",
+            ],
+        )
+
+        if columna_traslado:
+            datos = datos.rename(
+                columns={
+                    columna_traslado: "Traslados_residuos",
+                }
+            )
+
     # Si la planilla no contiene una columna de total bruto,
     # se calcula automáticamente como total neto + IVA.
     if (
@@ -1393,10 +1457,10 @@ def mostrar_panel():
             "No se encontró el archivo Excel RESUMEN ESTADOS DE PAGO."
         )
 
-    firma_excel = (
-        os.path.getmtime(ruta_excel),
-        os.path.getsize(ruta_excel),
-    )
+    with open(ruta_excel, "rb") as archivo_excel:
+        firma_excel = hashlib.sha256(
+            archivo_excel.read()
+        ).hexdigest()
 
     datos = cargar_datos(ruta_excel, firma_excel)
 
@@ -1589,25 +1653,25 @@ def mostrar_panel():
             "morado",
         ),
         (
-            "Servicio fijo",
+            "Servicio fijo<br>(Neto)",
             pesos_html(total_servicio_fijo),
             "Monto contractual acumulado",
             "verde",
         ),
         (
-            "Transporte residuos",
+            "Transporte residuos<br>(Neto)",
             pesos_html(total_transporte),
             f"{porcentaje(participacion_transporte)} del neto",
             "naranjo",
         ),
         (
-            "Adicionales",
+            "Adicionales<br>(Neto)",
             pesos_html(total_adicionales),
             f"{porcentaje(participacion_adicionales)} del neto",
             "amarillo",
         ),
         (
-            "Promedio servicio fijo mensual",
+            "Promedio servicio fijo mensual<br>(Neto)",
             pesos_html(promedio_servicio_fijo_mensual),
             f"{cantidad_meses} meses considerados",
             "azul",
@@ -1847,9 +1911,10 @@ def mostrar_panel():
         )
 
     else:
-        st.info(
-            "No se encontraron valores en las columnas 'Disposicion' y 'Traslado' "
-            "para el período seleccionado. Revisa que ambas columnas contengan montos numéricos."
+        st.warning(
+            "La planilla cargada no contiene valores utilizables en las columnas "
+            "'Disposicion' y 'Traslado'. Verifica que el archivo Excel actualizado "
+            "esté guardado en la misma carpeta de la aplicación."
         )
 
     # -----------------------------------------------------
