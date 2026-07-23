@@ -67,10 +67,18 @@ MESES_NUMERO = {
     "diciembre": 12,
 }
 
+COLUMNAS_DETALLE_ADICIONALES = [
+    "Reembolso",
+    "Insumos_arriendo_herramientas",
+    "Horas_extras",
+    "Cot_adicionales",
+]
+
 COLUMNAS_MONTO = [
     "Servicio_fijo",
     "Transporte_residuos",
     "Adicionales",
+    *COLUMNAS_DETALLE_ADICIONALES,
     "Total_neto",
     "IVA_19",
     "Total_bruto",
@@ -161,17 +169,6 @@ def buscar_archivo_excel():
         "xls",
     ]
 
-    # Se prioriza siempre el archivo oficial con el nombre exacto.
-    # Esto evita que la aplicación lea una copia anterior del Excel.
-    for extension in extensiones:
-        ruta_exacta = f"{NOMBRE_BASE_EXCEL}.{extension}"
-
-        if (
-            os.path.isfile(ruta_exacta)
-            and not os.path.basename(ruta_exacta).startswith("~$")
-        ):
-            return ruta_exacta
-
     candidatos = []
 
     for extension in extensiones:
@@ -186,10 +183,19 @@ def buscar_archivo_excel():
         and not os.path.basename(ruta).startswith("~$")
     ]
 
-    if candidatos:
-        return sorted(candidatos)[0]
+    if not candidatos:
+        return None
 
-    return None
+    # Se selecciona la versión más reciente y, ante igualdad,
+    # la de mayor tamaño. Así se reconoce también un archivo
+    # llamado RESUMEN ESTADOS DE PAGO(1).xlsx.
+    return max(
+        candidatos,
+        key=lambda ruta: (
+            os.path.getmtime(ruta),
+            os.path.getsize(ruta),
+        ),
+    )
 
 
 def normalizar(texto):
@@ -871,11 +877,10 @@ def cargar_datos(ruta_excel, firma_archivo=None):
     _ = firma_archivo
     datos = pd.read_excel(ruta_excel)
 
-    datos = (
-        datos
-        .dropna(how="all")
-        .dropna(axis=1, how="all")
-    )
+    # Se eliminan solamente filas completamente vacías.
+    # No se eliminan columnas vacías porque las columnas H a K
+    # corresponden al desglose futuro de Adicionales.
+    datos = datos.dropna(how="all")
 
     datos.columns = (
         datos.columns
@@ -891,27 +896,96 @@ def cargar_datos(ruta_excel, firma_archivo=None):
         ),
     ]
 
-    # La estructura oficial de la planilla utiliza:
-    # columna E = Disposicion
-    # columna F = Traslado
-    # Se asignan por posición para que el gráfico las reconozca incluso
-    # cuando Excel cambie levemente el texto o formato del encabezado.
+    # Estructura nueva de la planilla:
+    # A Mes | B Periodo | C Servicio fijo | D Transporte residuos
+    # E Disposicion | F Traslado | G Adicionales
+    # H Reembolso | I Insumos, arriendo y herramientas
+    # J Horas Extras | K Cot Adicionales
+    # L Total neto | M IVA | N Valor total
+    # O:S toneladas.
     columnas_planilla = list(datos.columns)
 
-    if len(columnas_planilla) >= 6:
-        renombres_ef = {}
+    esquema_nuevo = [
+        "Mes",
+        "Periodo",
+        "Servicio_fijo",
+        "Transporte_residuos",
+        "Disposicion_residuos",
+        "Traslados_residuos",
+        "Adicionales",
+        "Reembolso",
+        "Insumos_arriendo_herramientas",
+        "Horas_extras",
+        "Cot_adicionales",
+        "Total_neto",
+        "IVA_19",
+        "Total_bruto",
+        "Ton_RAD",
+        "Ton_Corteza_G3",
+        "Ton_Escoria",
+        "Ton_Cenizas",
+        "Ton_Total",
+    ]
 
-        columna_e = columnas_planilla[4]
-        columna_f = columnas_planilla[5]
+    esquema_anterior = [
+        "Mes",
+        "Periodo",
+        "Servicio_fijo",
+        "Transporte_residuos",
+        "Disposicion_residuos",
+        "Traslados_residuos",
+        "Adicionales",
+        "Total_neto",
+        "IVA_19",
+        "Total_bruto",
+        "Ton_RAD",
+        "Ton_Corteza_G3",
+        "Ton_Escoria",
+        "Ton_Cenizas",
+        "Ton_Total",
+    ]
 
-        if "Disposicion_residuos" not in datos.columns:
-            renombres_ef[columna_e] = "Disposicion_residuos"
+    encabezados_normalizados = [
+        normalizar(columna)
+        for columna in columnas_planilla
+    ]
 
-        if "Traslados_residuos" not in datos.columns:
-            renombres_ef[columna_f] = "Traslados_residuos"
+    usa_esquema_nuevo = bool(
+        len(columnas_planilla) >= 19
+        or any(
+            texto in encabezados_normalizados
+            for texto in [
+                "reembolso",
+                "rembolso",
+                "insumos, arriendo y herramientas",
+                "horas extras",
+                "cot adicionales",
+            ]
+        )
+    )
 
-        if renombres_ef:
-            datos = datos.rename(columns=renombres_ef)
+    esquema_posicional = (
+        esquema_nuevo
+        if usa_esquema_nuevo
+        else esquema_anterior
+    )
+
+    renombres_posicionales = {}
+
+    for indice, columna_objetivo in enumerate(esquema_posicional):
+        if indice >= len(columnas_planilla):
+            break
+
+        columna_actual = columnas_planilla[indice]
+
+        if (
+            columna_actual != columna_objetivo
+            and columna_objetivo not in datos.columns
+        ):
+            renombres_posicionales[columna_actual] = columna_objetivo
+
+    if renombres_posicionales:
+        datos = datos.rename(columns=renombres_posicionales)
 
     renombres = {}
 
@@ -996,11 +1070,39 @@ def cargar_datos(ruta_excel, firma_archivo=None):
         ],
         "Adicionales": [
             "Adicionales",
+            "Adicional",
+            "Total adicionales",
+        ],
+        "Reembolso": [
+            "Reembolso",
+            "Rembolso",
+            "Reembolsos",
+            "Rembolsos",
+        ],
+        "Insumos_arriendo_herramientas": [
+            "Insumos_arriendo_herramientas",
+            "Insumos, arriendo y herramientas",
+            "Insumos arriendo y herramientas",
+            "Insumos y herramientas",
+        ],
+        "Horas_extras": [
+            "Horas_extras",
+            "Horas Extras",
+            "Horas extra",
+            "HH Extras",
+        ],
+        "Cot_adicionales": [
+            "Cot_adicionales",
+            "Cot Adicionales",
+            "Cotizaciones adicionales",
+            "Cotización adicionales",
         ],
         "Total_neto": [
             "Total_neto",
             "Total neto",
             "Total neto acumulado",
+            "Total_net",
+            "Total net",
         ],
         "IVA_19": [
             "IVA_19",
@@ -1014,6 +1116,9 @@ def cargar_datos(ruta_excel, firma_archivo=None):
             "Valor total acumulado",
             "Total acumulado",
             "Monto final estados de pago",
+            "Valor_total",
+            "Valor total",
+            "Valor tot",
         ],
         "Ton_RAD": [
             "Ton_RAD",
@@ -1086,16 +1191,81 @@ def cargar_datos(ruta_excel, firma_archivo=None):
                 }
             )
 
-    # Si la planilla no contiene una columna de total bruto,
-    # se calcula automáticamente como total neto + IVA.
+    # Las cuatro columnas de desglose son opcionales.
+    # Se crean en cero cuando aún no tienen información.
+    for columna in COLUMNAS_DETALLE_ADICIONALES:
+        if columna not in datos.columns:
+            datos[columna] = 0.0
+
+    # Limpiar primero los campos monetarios disponibles para poder
+    # reconstruir totales cuando una columna venga vacía o no exista.
+    for columna in [
+        "Servicio_fijo",
+        "Transporte_residuos",
+        "Adicionales",
+        *COLUMNAS_DETALLE_ADICIONALES,
+        "Total_neto",
+        "IVA_19",
+        "Total_bruto",
+    ]:
+        if columna in datos.columns:
+            datos[columna] = datos[columna].apply(limpiar_numero)
+
+    datos["Adicionales_desglosados"] = datos[
+        COLUMNAS_DETALLE_ADICIONALES
+    ].sum(axis=1)
+
+    # Si Adicionales no existe, se obtiene desde el desglose.
+    # Si existe, se conserva su valor y solo se completa cuando esté vacío.
+    if "Adicionales" not in datos.columns:
+        datos["Adicionales"] = datos["Adicionales_desglosados"]
+    else:
+        mascara_adicionales_vacios = (
+            datos["Adicionales"].eq(0)
+            & datos["Adicionales_desglosados"].gt(0)
+        )
+
+        datos.loc[
+            mascara_adicionales_vacios,
+            "Adicionales",
+        ] = datos.loc[
+            mascara_adicionales_vacios,
+            "Adicionales_desglosados",
+        ]
+
+    # Respaldos de cálculo para mantener operativa la aplicación
+    # aunque cambie el orden o el nombre de las columnas.
+    if (
+        "Total_neto" not in datos.columns
+        and all(
+            columna in datos.columns
+            for columna in [
+                "Servicio_fijo",
+                "Transporte_residuos",
+                "Adicionales",
+            ]
+        )
+    ):
+        datos["Total_neto"] = (
+            datos["Servicio_fijo"]
+            + datos["Transporte_residuos"]
+            + datos["Adicionales"]
+        )
+
+    if (
+        "IVA_19" not in datos.columns
+        and "Total_neto" in datos.columns
+    ):
+        datos["IVA_19"] = datos["Total_neto"] * 0.19
+
     if (
         "Total_bruto" not in datos.columns
         and "Total_neto" in datos.columns
         and "IVA_19" in datos.columns
     ):
         datos["Total_bruto"] = (
-            datos["Total_neto"].apply(limpiar_numero)
-            + datos["IVA_19"].apply(limpiar_numero)
+            datos["Total_neto"]
+            + datos["IVA_19"]
         )
 
     columnas_requeridas = [
@@ -1122,7 +1292,8 @@ def cargar_datos(ruta_excel, firma_archivo=None):
 
     if faltantes:
         raise ValueError(
-            "Faltan columnas en la planilla: "
+            "Faltan columnas en la planilla después de aplicar "
+            "el mapeo automático: "
             + ", ".join(faltantes)
         )
 
@@ -1238,6 +1409,13 @@ def cargar_datos(ruta_excel, firma_archivo=None):
     datos["Servicio_fijo_MM"] = datos["Servicio_fijo"] / 1_000_000
     datos["Transporte_residuos_MM"] = datos["Transporte_residuos"] / 1_000_000
     datos["Adicionales_MM"] = datos["Adicionales"] / 1_000_000
+    datos["Adicionales_desglosados_MM"] = (
+        datos["Adicionales_desglosados"] / 1_000_000
+    )
+
+    for columna in COLUMNAS_DETALLE_ADICIONALES:
+        datos[f"{columna}_MM"] = datos[columna] / 1_000_000
+
     datos["Disposicion_residuos_MM"] = datos["Disposicion_residuos"] / 1_000_000
     datos["Traslados_residuos_MM"] = datos["Traslados_residuos"] / 1_000_000
 
