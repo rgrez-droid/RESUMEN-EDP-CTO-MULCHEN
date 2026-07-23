@@ -4,11 +4,12 @@ import hashlib
 import os
 import re
 import unicodedata
+from html.parser import HTMLParser
+from urllib.request import Request, urlopen
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-import streamlit.components.v1 as components
 
 
 # =========================================================
@@ -762,6 +763,60 @@ h4,
 p,
 label {
     color: #0f172a;
+}
+
+
+/* Estados de Pago por año */
+.ep-year-card {
+    background: rgba(255, 255, 255, 0.88);
+    border: 1px solid rgba(148, 163, 184, 0.62);
+    border-top: 4px solid #16a34a;
+    border-radius: 14px;
+    padding: 14px 13px 12px 13px;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+    min-height: 100%;
+}
+
+.ep-year-title {
+    color: #0f172a;
+    font-size: 19px;
+    font-weight: 900;
+    text-align: center;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #cbd5e1;
+}
+
+.ep-document-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.ep-document-link {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 9px;
+    border: 1px solid rgba(148, 163, 184, 0.48);
+    border-radius: 8px;
+    background: rgba(248, 250, 252, 0.90);
+    color: #1e293b !important;
+    text-decoration: none !important;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.2;
+    transition: 0.15s ease-in-out;
+}
+
+.ep-document-link:hover {
+    background: #e2e8f0;
+    border-color: #16a34a;
+    transform: translateY(-1px);
+}
+
+.ep-document-icon {
+    font-size: 14px;
 }
 
 </style>
@@ -1822,38 +1877,211 @@ def filtrar_datos(datos, filtro_anios, filtro_meses):
     return salida.copy()
 
 
+class _DriveFolderLinkParser(HTMLParser):
+    """Extrae enlaces desde una carpeta pública de Google Drive."""
+
+    def __init__(self):
+        super().__init__()
+        self.enlaces = []
+        self._href_actual = None
+        self._texto_actual = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() != "a":
+            return
+
+        href = dict(attrs).get("href")
+
+        if href:
+            self._href_actual = href
+            self._texto_actual = []
+
+    def handle_data(self, data):
+        if self._href_actual:
+            self._texto_actual.append(data)
+
+    def handle_endtag(self, tag):
+        if tag.lower() != "a" or not self._href_actual:
+            return
+
+        nombre = " ".join(
+            "".join(self._texto_actual).split()
+        ).strip()
+
+        self.enlaces.append(
+            (
+                self._href_actual,
+                nombre,
+            )
+        )
+
+        self._href_actual = None
+        self._texto_actual = []
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def listar_estados_pago_drive():
+    """Lista los PDF públicos de Drive sin descargarlos."""
+
+    url_embebida = (
+        "https://drive.google.com/embeddedfolderview"
+        f"?id={CARPETA_DRIVE_ESTADOS_PAGO_ID}"
+    )
+
+    solicitud = Request(
+        url_embebida,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0 Safari/537.36"
+            )
+        },
+    )
+
+    with urlopen(
+        solicitud,
+        timeout=25,
+    ) as respuesta:
+        contenido_html = respuesta.read().decode(
+            "utf-8",
+            errors="ignore",
+        )
+
+    analizador = _DriveFolderLinkParser()
+    analizador.feed(contenido_html)
+
+    documentos_por_periodo = {}
+
+    for href, nombre_archivo in analizador.enlaces:
+        coincidencia_archivo = re.search(
+            r"https://drive\.google\.com/file/d/([-\w]{20,})/view",
+            href,
+        )
+
+        if not coincidencia_archivo:
+            continue
+
+        coincidencia_periodo = re.search(
+            r"EP[_\s-]*(20\d{2})[-_](0[1-9]|1[0-2])",
+            nombre_archivo,
+            flags=re.IGNORECASE,
+        )
+
+        if not coincidencia_periodo:
+            continue
+
+        archivo_id = coincidencia_archivo.group(1)
+        anio = int(coincidencia_periodo.group(1))
+        mes_numero = int(coincidencia_periodo.group(2))
+
+        documentos_por_periodo[
+            (
+                anio,
+                mes_numero,
+            )
+        ] = {
+            "id": archivo_id,
+            "nombre": nombre_archivo,
+            "anio": anio,
+            "mes_numero": mes_numero,
+            "mes": MESES[mes_numero],
+            "url": (
+                "https://drive.google.com/file/d/"
+                f"{archivo_id}/view"
+            ),
+        }
+
+    return sorted(
+        documentos_por_periodo.values(),
+        key=lambda archivo: (
+            archivo["anio"],
+            archivo["mes_numero"],
+        ),
+    )
+
+
 def mostrar_estados_pago_drive():
-    """Muestra la carpeta pública de Estados de Pago dentro del panel."""
+    """Muestra los Estados de Pago en cuatro columnas por año."""
 
     seccion("📄 Estados de Pago Mensuales")
 
     st.markdown(
         (
             '<div class="resumen">'
-            "Selecciona el archivo correspondiente al período que deseas revisar. "
-            "Los documentos se obtienen directamente desde la carpeta pública "
-            "de Google Drive."
+            "Selecciona un mes para visualizar el Estado de Pago correspondiente. "
+            "Los documentos se cargan directamente desde Google Drive."
             "</div>"
         ),
         unsafe_allow_html=True,
     )
 
-    st.link_button(
-        "🔗 Abrir carpeta completa en Google Drive",
-        CARPETA_DRIVE_ESTADOS_PAGO_URL,
-        use_container_width=True,
-    )
+    try:
+        documentos = listar_estados_pago_drive()
 
-    url_embebida = (
-        "https://drive.google.com/embeddedfolderview"
-        f"?id={CARPETA_DRIVE_ESTADOS_PAGO_ID}#list"
-    )
+    except Exception:
+        st.warning(
+            "No fue posible cargar temporalmente los Estados de Pago desde Drive. "
+            "Verifica que la carpeta y los archivos continúen compartidos como "
+            "'Cualquier persona con el enlace'."
+        )
+        return
 
-    components.iframe(
-        url_embebida,
-        height=760,
-        scrolling=True,
-    )
+    if not documentos:
+        st.info(
+            "No se encontraron archivos con el formato "
+            "EP_AAAA-MM_Mes dentro de la carpeta compartida."
+        )
+        return
+
+    documentos_por_anio = {}
+
+    for documento in documentos:
+        documentos_por_anio.setdefault(
+            documento["anio"],
+            [],
+        ).append(documento)
+
+    anios = sorted(documentos_por_anio)
+
+    for inicio in range(0, len(anios), 4):
+        columnas = st.columns(4)
+
+        for indice_columna, columna in enumerate(columnas):
+            posicion = inicio + indice_columna
+
+            if posicion >= len(anios):
+                continue
+
+            anio = anios[posicion]
+            documentos_anio = documentos_por_anio[anio]
+
+            enlaces_html = []
+
+            for documento in documentos_anio:
+                enlaces_html.append(
+                    (
+                        f'<a class="ep-document-link" '
+                        f'href="{documento["url"]}" '
+                        f'target="_blank" rel="noopener noreferrer">'
+                        f'<span class="ep-document-icon">📄</span>'
+                        f'<span>{documento["mes"]}</span>'
+                        "</a>"
+                    )
+                )
+
+            with columna:
+                st.markdown(
+                    (
+                        '<div class="ep-year-card">'
+                        f'<div class="ep-year-title">{anio}</div>'
+                        '<div class="ep-document-list">'
+                        + "".join(enlaces_html)
+                        + "</div>"
+                        "</div>"
+                    ),
+                    unsafe_allow_html=True,
+                )
 
 # =========================================================
 # PANEL PRINCIPAL
@@ -2169,12 +2397,6 @@ def mostrar_panel():
         ),
         unsafe_allow_html=True,
     )
-
-    # -----------------------------------------------------
-    # ESTADOS DE PAGO EN GOOGLE DRIVE
-    # -----------------------------------------------------
-
-    mostrar_estados_pago_drive()
 
     # -----------------------------------------------------
     # INDICADORES DE ADICIONALES
@@ -2722,6 +2944,12 @@ def mostrar_panel():
         figura_anual,
         use_container_width=True,
     )
+
+    # -----------------------------------------------------
+    # ESTADOS DE PAGO MENSUALES
+    # -----------------------------------------------------
+
+    mostrar_estados_pago_drive()
 
     # -----------------------------------------------------
     # PIE
