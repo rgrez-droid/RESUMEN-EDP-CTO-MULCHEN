@@ -785,7 +785,7 @@ def agregar_sello_agua_panel():
             "background-repeat: no-repeat;"
             "background-position: center center;"
             "background-size: cover;"
-            "opacity: 0.055;"
+            "opacity: 0.09;"
             "z-index: 1;"
             "pointer-events: none;"
             "}"
