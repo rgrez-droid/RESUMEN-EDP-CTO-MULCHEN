@@ -885,6 +885,8 @@ def cargar_datos(ruta_excel):
             "Disposición_residuos",
             "Disposición residuos",
             "Disposicion residuos",
+            "Disposición",
+            "Disposicion",
             "Disposición final",
             "Disposicion final",
             "Total disposición",
@@ -1747,6 +1749,13 @@ def mostrar_panel():
             .sort_values("Fecha")
         )
 
+        # No graficar como cero los meses anteriores que están vacíos
+        # en las columnas Disposicion y Traslado.
+        costos_residuos_mensual = costos_residuos_mensual[
+            (costos_residuos_mensual["Disposicion_residuos"] != 0)
+            | (costos_residuos_mensual["Traslados_residuos"] != 0)
+        ].copy()
+
         costos_residuos_largo = costos_residuos_mensual.melt(
             id_vars=[
                 "Fecha",
@@ -1765,8 +1774,8 @@ def mostrar_panel():
             "Concepto"
         ].map(
             {
-                "Disposicion_residuos": "Disposición final",
-                "Traslados_residuos": "Traslados",
+                "Disposicion_residuos": "Disposición",
+                "Traslados_residuos": "Traslado",
             }
         )
 
@@ -1787,18 +1796,18 @@ def mostrar_panel():
             y="Monto_MM",
             color="Concepto",
             markers=True,
-            title="Evolución mensual: disposición final y traslados de residuos",
+            title="Evolución mensual de disposición y traslado de residuos",
             template="plotly_white",
             category_orders={
                 "Periodo_Texto": orden_periodos_costos,
                 "Concepto": [
-                    "Disposición final",
-                    "Traslados",
+                    "Disposición",
+                    "Traslado",
                 ],
             },
             color_discrete_map={
-                "Disposición final": "#16a34a",
-                "Traslados": "#ea580c",
+                "Disposición": "#16a34a",
+                "Traslado": "#ea580c",
             },
             custom_data=["Monto_Texto"],
         )
@@ -1829,7 +1838,7 @@ def mostrar_panel():
     else:
         st.info(
             "Para mostrar el gráfico de disposición y traslados, la planilla "
-            "debe incluir las columnas 'Disposición final' y 'Traslados', o "
+            "debe incluir las columnas 'Disposicion' y 'Traslado', o "
             "bien los costos separados de RAD, Corteza, Escoria y Cenizas."
         )
 
