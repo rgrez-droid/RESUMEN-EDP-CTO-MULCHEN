@@ -1930,9 +1930,38 @@ def mostrar_panel():
     componentes_largo = preparar_componentes_ep_largo(datos_filtrados)
 
     total_servicio_fijo = float(datos_filtrados["Servicio_fijo"].sum())
-    total_transporte = float(datos_filtrados["Transporte_residuos"].sum())
-    total_disposicion = float(datos_filtrados["Disposicion_residuos"].sum())
-    total_traslados = float(datos_filtrados["Traslados_residuos"].sum())
+    # El resumen utiliza todo el período seleccionado, incluido 2023.
+    # No se reutiliza ningún subconjunto definido para gráficos.
+    datos_resumen_transporte = datos_filtrados.copy()
+
+    total_transporte = float(
+        datos_resumen_transporte["Transporte_residuos"].sum()
+    )
+    total_disposicion = float(
+        datos_resumen_transporte["Disposicion_residuos"].sum()
+    )
+    total_traslados_planilla = float(
+        datos_resumen_transporte["Traslados_residuos"].sum()
+    )
+
+    # En la planilla existen pequeñas diferencias de centavos/pesos entre
+    # Transporte y la suma Disposición + Traslado. Cuando la diferencia es
+    # solo de redondeo, se incorpora al total de traslados para que el
+    # desglose coincida exactamente con el total informado.
+    diferencia_desglose_transporte = (
+        total_transporte
+        - total_disposicion
+        - total_traslados_planilla
+    )
+
+    if abs(diferencia_desglose_transporte) <= 1_000:
+        total_traslados = (
+            total_traslados_planilla
+            + diferencia_desglose_transporte
+        )
+    else:
+        total_traslados = total_traslados_planilla
+
     total_adicionales = float(datos_filtrados["Adicionales"].sum())
     total_neto = float(datos_filtrados["Total_neto"].sum())
     total_iva = float(datos_filtrados["IVA_19"].sum())
