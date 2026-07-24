@@ -2006,6 +2006,15 @@ def mostrar_estados_pago_drive():
 
     seccion("📄 Estados de Pago Mensuales")
 
+    st.markdown(
+        (
+            '<div class="resumen">'
+            "Visualización de Estados de Pago Mensuales"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
     try:
         documentos = listar_estados_pago_drive()
 
