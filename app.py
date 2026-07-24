@@ -2004,12 +2004,12 @@ def listar_estados_pago_drive():
 def mostrar_estados_pago_drive():
     """Muestra los Estados de Pago en cuatro columnas por año."""
 
-    seccion("📄 Estados de Pago Mensuales")
+    seccion("📄 Estados de Pago")
 
     st.markdown(
         (
             '<div class="resumen">'
-            "Visualización de Estados de Pago Mensuales"
+            "Visualización EDP Mensual"
             "</div>"
         ),
         unsafe_allow_html=True,
