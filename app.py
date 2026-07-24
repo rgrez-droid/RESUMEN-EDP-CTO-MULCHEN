@@ -2006,16 +2006,6 @@ def mostrar_estados_pago_drive():
 
     seccion("📄 Estados de Pago Mensuales")
 
-    st.markdown(
-        (
-            '<div class="resumen">'
-            "Selecciona un mes para visualizar el Estado de Pago correspondiente. "
-            "Los documentos se cargan directamente desde Google Drive."
-            "</div>"
-        ),
-        unsafe_allow_html=True,
-    )
-
     try:
         documentos = listar_estados_pago_drive()
 
