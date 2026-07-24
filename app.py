@@ -693,6 +693,50 @@ div[data-testid="stFormSubmitButton"] button:hover {
     line-height: 1.35;
 }
 
+/* KPI doble: promedio mensual de traslados y disposición */
+.tarjeta-desglose {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 8px;
+}
+
+.tarjeta-desglose-fila {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 3px;
+}
+
+.tarjeta-desglose-fila + .tarjeta-desglose-fila {
+    border-top: 1px solid #e2e8f0;
+    padding-top: 6px;
+}
+
+.tarjeta-desglose-concepto {
+    color: #475569;
+    font-size: 11px;
+    font-weight: 850;
+    text-align: left;
+    text-transform: uppercase;
+}
+
+.tarjeta-desglose-valor {
+    font-size: 13px;
+    font-weight: 950;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.valor-traslado {
+    color: #ea580c;
+}
+
+.valor-disposicion {
+    color: #16a34a;
+}
+
 .verde {
     color: #047857;
 }
@@ -1777,6 +1821,41 @@ def tarjeta(titulo, valor, subtitulo, color):
     )
 
 
+def tarjeta_promedios_residuos(
+    promedio_traslados,
+    porcentaje_traslados,
+    promedio_disposicion,
+    porcentaje_disposicion,
+):
+    st.markdown(
+        (
+            '<div class="tarjeta tarjeta-amarillo">'
+            '<div class="tarjeta-titulo">'
+            'Promedio mensual<br>traslados y disposición'
+            '</div>'
+            '<div class="tarjeta-desglose">'
+            '<div class="tarjeta-desglose-fila">'
+            '<span class="tarjeta-desglose-concepto">Traslados</span>'
+            f'<span class="tarjeta-desglose-valor valor-traslado">'
+            f'{pesos_texto(promedio_traslados)} · '
+            f'{porcentaje(porcentaje_traslados)}'
+            '</span>'
+            '</div>'
+            '<div class="tarjeta-desglose-fila">'
+            '<span class="tarjeta-desglose-concepto">Disposición</span>'
+            f'<span class="tarjeta-desglose-valor valor-disposicion">'
+            f'{pesos_texto(promedio_disposicion)} · '
+            f'{porcentaje(porcentaje_disposicion)}'
+            '</span>'
+            '</div>'
+            '</div>'
+            '<div class="tarjeta-subtitulo">% del transporte de residuos</div>'
+            '</div>'
+        ),
+        unsafe_allow_html=True,
+    )
+
+
 def formato_grafico(figura, altura=400):
     figura.update_layout(
         height=altura,
@@ -2273,6 +2352,30 @@ def mostrar_panel():
         else 0
     )
 
+    promedio_traslados_mensual = (
+        total_traslados / cantidad_meses
+        if cantidad_meses
+        else 0
+    )
+
+    promedio_disposicion_mensual = (
+        total_disposicion / cantidad_meses
+        if cantidad_meses
+        else 0
+    )
+
+    porcentaje_traslados_transporte = (
+        total_traslados / total_transporte * 100
+        if total_transporte
+        else 0
+    )
+
+    porcentaje_disposicion_transporte = (
+        total_disposicion / total_transporte * 100
+        if total_transporte
+        else 0
+    )
+
     promedio_ton_mensual = (
         total_toneladas / cantidad_meses
         if cantidad_meses
@@ -2487,7 +2590,7 @@ def mostrar_panel():
         with columna:
             tarjeta(*datos_tarjeta)
 
-    col_costo1, col_costo2, col_costo3 = st.columns(3)
+    col_costo1, col_costo2, col_costo3, col_costo4 = st.columns(4)
 
     with col_costo1:
         tarjeta(
@@ -2511,6 +2614,14 @@ def mostrar_panel():
             toneladas(promedio_ton_mensual),
             f"{cantidad_meses} meses considerados",
             "azul",
+        )
+
+    with col_costo4:
+        tarjeta_promedios_residuos(
+            promedio_traslados_mensual,
+            porcentaje_traslados_transporte,
+            promedio_disposicion_mensual,
+            porcentaje_disposicion_transporte,
         )
 
     # Gráfico mensual de disposición final y traslados.
