@@ -630,7 +630,9 @@ div[data-testid="stFormSubmitButton"] button:hover {
     border-top: 4px solid #334155;
     border-radius: 15px;
     padding: 18px 12px 16px 12px;
-    min-height: 116px;
+    height: 148px;
+    min-height: 148px;
+    box-sizing: border-box;
     text-align: center;
 
     box-shadow:
@@ -1849,7 +1851,6 @@ def tarjeta_promedios_residuos(
             '</span>'
             '</div>'
             '</div>'
-            '<div class="tarjeta-subtitulo">% del transporte de residuos</div>'
             '</div>'
         ),
         unsafe_allow_html=True,
