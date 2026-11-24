@@ -4,6 +4,7 @@ import hashlib
 import os
 import re
 import unicodedata
+from html import escape
 from html.parser import HTMLParser
 from urllib.request import Request, urlopen
 
@@ -172,57 +173,67 @@ def buscar_imagen_por_nombre(nombre_base):
 
 
 def buscar_archivo_excel():
-    extensiones = [
-        "xlsx",
-        "xlsm",
-        "xls",
-    ]
+    """Selecciona la planilla con el último período realmente disponible."""
+    extensiones = ("xlsx", "xlsm", "xls")
+    carpetas = {os.path.dirname(os.path.abspath(__file__)), os.getcwd()}
+    candidatos = set()
 
-    candidatos = []
+    for carpeta in carpetas:
+        for extension in extensiones:
+            patron = os.path.join(carpeta, f"*{NOMBRE_BASE_EXCEL}*.{extension}")
+            candidatos.update(os.path.abspath(ruta) for ruta in glob.glob(patron))
 
-    for extension in extensiones:
-        candidatos.extend(
-            glob.glob(f"*{NOMBRE_BASE_EXCEL}*.{extension}")
-        )
-
-    candidatos = [
-        ruta
-        for ruta in sorted(set(candidatos))
+    candidatos = sorted(
+        ruta for ruta in candidatos
         if os.path.isfile(ruta)
         and not os.path.basename(ruta).startswith("~$")
-    ]
+    )
 
     if not candidatos:
         return None
 
-    def puntaje_archivo(ruta):
+    archivos_validos = []
+    errores = []
+
+    for ruta in candidatos:
         try:
-            cantidad_columnas = len(
-                pd.read_excel(ruta, nrows=0).columns
+            # La firma cambia cuando se modifica el contenido del Excel.
+            with open(ruta, "rb") as archivo:
+                firma = hashlib.sha256(archivo.read()).hexdigest()
+
+            datos_excel = cargar_datos(ruta, firma)
+            fecha_maxima = datos_excel["Fecha"].max()
+
+            if pd.isna(fecha_maxima):
+                raise ValueError("No contiene períodos válidos.")
+
+            nombre_exacto = int(
+                os.path.basename(ruta) in {
+                    f"{NOMBRE_BASE_EXCEL}.{extension}"
+                    for extension in extensiones
+                }
             )
-        except Exception:
-            cantidad_columnas = 0
 
-        nombre_exacto = int(
-            os.path.basename(ruta)
-            in {
-                f"{NOMBRE_BASE_EXCEL}.xlsx",
-                f"{NOMBRE_BASE_EXCEL}.xlsm",
-                f"{NOMBRE_BASE_EXCEL}.xls",
-            }
+            # Primero el último mes de datos; después la modificación
+            # del archivo y el nombre exacto como criterios de desempate.
+            puntaje = (
+                fecha_maxima,
+                os.path.getmtime(ruta),
+                nombre_exacto,
+                datos_excel["Fecha"].nunique(),
+            )
+            archivos_validos.append((puntaje, ruta))
+
+        except Exception as error:
+            errores.append(f"{os.path.basename(ruta)}: {error}")
+
+    if not archivos_validos:
+        raise ValueError(
+            "No se pudo cargar ninguna planilla de estados de pago. "
+            + " | ".join(errores)
         )
 
-        return (
-            cantidad_columnas,
-            nombre_exacto,
-            os.path.getmtime(ruta),
-            os.path.getsize(ruta),
-        )
-
-    return max(
-        candidatos,
-        key=puntaje_archivo,
-    )
+    return max(archivos_validos, key=lambda elemento: elemento[0])[1]
 
 
 def normalizar(texto):
@@ -2223,7 +2234,7 @@ def mostrar_panel():
                 " &nbsp;|&nbsp; "
                 f"<b>Última actualización:</b> {nombre_periodo(fecha_maxima)}"
                 " &nbsp;|&nbsp; "
-                "<b>Fuente:</b> Resumen mensual de Estados de Pago"
+                f"<b>Fuente:</b> {escape(os.path.basename(ruta_excel))}"
                 "</div>"
                 "</div>"
             ),
